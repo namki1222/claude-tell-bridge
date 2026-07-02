@@ -94,9 +94,8 @@ append_role_template() { # $1=dir  $2=session  $3=roles(공백구분)  $4=hub_se
   return 0
 }
 
-make_hub() { # 허브 세션 등록 + 허브 CLAUDE.md 생성. 성공 시 HUB/HUBR 설정됨
-  ask "  허브 세션 이름 [hub]: "; read -r HUB; HUB=${HUB:-hub}
-  ask "  허브 역할(패널 이름) [hub]: "; read -r HUBR; HUBR=${HUBR:-hub}
+make_hub() { # 허브 세션 등록 + 허브 CLAUDE.md 생성. 성공 시 HUB/HUBR 설정됨 (허브는 단일 패널 → 이름=역할)
+  ask "  허브 이름 [hub]: "; read -r HUB; HUB=${HUB:-hub}; HUBR="$HUB"
   ask "  허브 작업 디렉터리 [~/tell-hub]: "; read -r HUBD; HUBD=$(abspath "${HUBD:-$HOME/tell-hub}")
   echo "$HUB|$HUBR|$HUBD" >> "$WS_CONF"; mkdir -p "$HUBD"
   if [ -f "$TEMPLATE_DIR/CLAUDE-section-hub.md" ] && ! grep -q '허브(비서)' "$HUBD/CLAUDE.md" 2>/dev/null; then
