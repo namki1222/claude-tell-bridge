@@ -98,7 +98,7 @@ mkdir -p ~/tell-demo/api ~/tell-demo/web
 - `~/tell-demo/api` → "백엔드 담당" Claude가 상주할 곳
 - `~/tell-demo/web` → "프론트 담당" Claude가 상주할 곳
 
-## 3. `tell init` — 셋업 마법사
+## 3. 생성 — `tell init` 셋업 마법사
 
 ```bash
 tell init
@@ -144,13 +144,15 @@ tell init
 
 > 이 단계에서 각 디렉터리의 `CLAUDE.md`에 협업 규약이 자동으로 삽입됩니다 — 받는 쪽 Claude가 "응답은 어떻게 보내야 하는지" 아는 근거입니다. 마법사가 알아서 하니 신경 쓸 것 없습니다.
 
-## 4. 세션 띄우기
+여기까지가 **생성(등록)**입니다 — 설정에 기록만 됐고, **아직 아무 세션도 실행되지 않았습니다.** 실행은 다음 단계에서.
+
+## 4. 실행 — 세션 켜기
 
 ```bash
-tell ws demo
+tell ws demo       # demo 하나 켜고 접속 (여러 개 등록했다면: tell up → 전부 켜기)
 ```
 
-이 한 줄이: 세션 `demo` 생성 → `api`/`web` 패널로 화면 분할 → 각 패널에서 Claude Code 자동 실행 → 그 화면으로 접속, 까지 다 합니다.
+이 한 줄이: 세션 `demo` 시작 → `api`/`web` 패널로 화면 분할 → 각 패널에서 Claude Code 자동 실행 → 그 화면으로 접속, 까지 다 합니다.
 
 **화면이 두 칸으로 나뉘고 양쪽에 Claude Code가 뜨면 성공입니다.**
 
