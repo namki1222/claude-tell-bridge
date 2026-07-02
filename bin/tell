@@ -47,7 +47,7 @@ cmd_doctor() {
   if command -v tmux >/dev/null 2>&1; then echo "✅ tmux $(tmux -V | awk '{print $2}')"; else echo "❌ tmux 없음 — brew install tmux"; ok=1; fi
   if command -v claude >/dev/null 2>&1; then echo "✅ claude $(claude --version 2>/dev/null | awk '{print $1}')"; else echo "⚠️  claude CLI 없음 — 메시징은 되지만 받는 쪽 AI가 없음"; fi
   if [ -n "${TMUX:-}" ]; then echo "✅ tmux 세션 안에서 실행 중 (발신자 헤더 자동)"; else echo "ℹ️  tmux 밖 — 발신자(from) 헤더 없이 전송됨"; fi
-  if [ -f "$WS_CONF" ]; then echo "✅ 워크스페이스 설정: $WS_CONF ($(grep -cv '^\s*#\|^\s*$' "$WS_CONF" 2>/dev/null || echo 0)줄)"; else echo "ℹ️  워크스페이스 설정 없음 — 'tell init' 또는 'tell adopt'로 생성"; fi
+  if [ -f "$WS_CONF" ]; then echo "✅ 워크스페이스 설정: $WS_CONF ($(grep -cvE '^[[:space:]]*(#|$)' "$WS_CONF" 2>/dev/null || echo 0)줄)"; else echo "ℹ️  워크스페이스 설정 없음 — 'tell init' 또는 'tell adopt'로 생성"; fi
   [ -f "$TEMPLATE_DIR/CLAUDE-section-role.md" ] && echo "✅ 템플릿: $TEMPLATE_DIR" || echo "⚠️  템플릿 폴더 못 찾음: $TEMPLATE_DIR"
   echo "ℹ️  주의: 입력창 감지는 Claude Code 프롬프트 렌더링(❯)을 읽습니다. CLI 대개편 시 점검 필요."
   return $ok
@@ -128,21 +128,23 @@ cmd_ws() {
   if [ -z "$NAME" ]; then
     echo "── 실행 중 ──"; tmux ls 2>/dev/null || echo "(없음)"
     echo "── 설정된 워크스페이스 ──"
-    grep -v '^\s*#\|^\s*$' "$WS_CONF" | awk -F'|' '{print $1}' | sort -u
+    grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | awk -F'|' '{print $1}' | sort -u
     exit 0
   fi
   if ! tmux has-session -t "=$NAME" 2>/dev/null; then
-    local first=1 p
-    grep -v '^\s*#\|^\s*$' "$WS_CONF" | LC_ALL=C awk -F'|' -v s="$NAME" '$1==s' | while IFS='|' read -r S R D; do
+    local p
+    # 주의: 루프 안 tmux 호출에 </dev/null — stdin(설정 라인)을 삼켜 다음 패널을 건너뛰는 버그 방지
+    grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | LC_ALL=C awk -F'|' -v s="$NAME" '$1==s' | while IFS='|' read -r S R D; do
       D=${D/#\~/$HOME}
       if [ ! -d "$D" ]; then echo "⚠️ 디렉터리 없음: $D (건너뜀)"; continue; fi
       if ! tmux has-session -t "=$NAME" 2>/dev/null; then
-        p=$(tmux new-session -d -P -F '#{pane_id}' -s "$NAME" -c "$D")
+        p=$(tmux new-session -d -P -F '#{pane_id}' -s "$NAME" -c "$D" </dev/null)
       else
-        p=$(tmux split-window -h -P -F '#{pane_id}' -t "=$NAME" -c "$D")
+        # split 타깃은 세션명이 아니라 패널이어야 함 → 직전 패널 id 사용
+        p=$(tmux split-window -h -P -F '#{pane_id}' -t "$p" -c "$D" </dev/null)
       fi
-      tmux select-pane -t "$p" -T "$R"
-      tmux send-keys -t "$p" "claude" Enter
+      tmux select-pane -t "$p" -T "$R" </dev/null
+      tmux send-keys -t "$p" "claude" Enter </dev/null
     done
     tmux has-session -t "=$NAME" 2>/dev/null || { echo "알 수 없는 워크스페이스: $NAME"; exit 1; }
     tmux select-layout -t "=$NAME" tiled 2>/dev/null
