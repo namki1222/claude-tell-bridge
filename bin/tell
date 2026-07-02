@@ -6,8 +6,11 @@
 #   tell -r <KEY> <세션> <역할> "<메시지>"  응답 전송 (받은 요청의 KEY 그대로)
 # 관리:
 #   tell ws [<세션>]                     워크스페이스 부트스트랩/접속 (설정: workspaces.conf)
-#   tell init                            신규 셋업 마법사 (워크스페이스 + CLAUDE.md 규약)
+#   tell init                            셋업 마법사 — 허브(선택) → 프로젝트/역할/디렉터리
 #   tell adopt                           떠 있는 tmux 세션을 브릿지에 편입 (재시작 불필요)
+#   tell hub                             총괄 관리(허브) 세션을 나중에 추가
+#   tell list                            주소록 — 말 걸 수 있는 세션:역할 + 규약 여부
+#   tell rm <세션>                       세션 정리 — tmux 종료 + 설정에서 제거 (각각 확인)
 #   tell doctor                          환경 점검
 #
 # 동작 원리:
@@ -62,39 +65,58 @@ append_role_template() { # $1=dir  $2=session  $3=roles(공백구분)  $4=hub_se
   fi
   mkdir -p "$dir"
   { [ -f "$f" ] && echo ""; sed -e "s/{{SESSION}}/$session/g" -e "s/{{ROLES}}/$roles/g" \
-        -e "s/{{HUB_SESSION}}/$hub_s/g" -e "s/{{HUB_ROLE}}/$hub_r/g" "$t"; } >> "$f"
+        -e "s/{{HUB_SESSION}}/$hub_s/g" -e "s/{{HUB_ROLE}}/$hub_r/g" "$t" \
+    | sed -e 's# (보통 발신자는 허브 `/`)##'; } >> "$f"   # 허브 없이 쓰면 허브 문구 제거
   echo "  ✍️  규약 추가됨: $f"
 }
 
-cmd_init() {
-  echo "── tell init — 신규 워크스페이스 셋업 ──"
-  mkdir -p "$CONFIG_DIR"
-  printf "허브(비서) 세션 이름 [hub]: "; read -r HUB; HUB=${HUB:-hub}
-  printf "허브 역할(패널 제목) [hub]: "; read -r HUBR; HUBR=${HUBR:-hub}
-  printf "허브 작업 디렉터리 [~/tell-hub]: "; read -r HUBD; HUBD=${HUBD:-$HOME/tell-hub}; HUBD=${HUBD/#\~/$HOME}
-  echo "$HUB|$HUBR|$HUBD" >> "$WS_CONF"
-  mkdir -p "$HUBD"
-  if [ -f "$TEMPLATE_DIR/CLAUDE-section-hub.md" ]; then
-    sed -e "s/{{HUB_SESSION}}/$HUB/g" -e "s/{{HUB_ROLE}}/$HUBR/g" "$TEMPLATE_DIR/CLAUDE-section-hub.md" >> "$HUBD/CLAUDE.md"
+make_hub() { # 허브 세션 등록 + 허브 CLAUDE.md 생성. 성공 시 HUB/HUBR 설정됨
+  printf "  허브 세션 이름 [hub]: "; read -r HUB; HUB=${HUB:-hub}
+  printf "  허브 역할(패널 이름) [hub]: "; read -r HUBR; HUBR=${HUBR:-hub}
+  printf "  허브 작업 디렉터리 [~/tell-hub]: "; read -r HUBD; HUBD=${HUBD:-$HOME/tell-hub}; HUBD=${HUBD/#\~/$HOME}
+  echo "$HUB|$HUBR|$HUBD" >> "$WS_CONF"; mkdir -p "$HUBD"
+  if [ -f "$TEMPLATE_DIR/CLAUDE-section-hub.md" ] && ! grep -q '허브(비서)' "$HUBD/CLAUDE.md" 2>/dev/null; then
+    { [ -f "$HUBD/CLAUDE.md" ] && echo ""; sed -e "s/{{HUB_SESSION}}/$HUB/g" -e "s/{{HUB_ROLE}}/$HUBR/g" "$TEMPLATE_DIR/CLAUDE-section-hub.md"; } >> "$HUBD/CLAUDE.md"
     echo "  ✍️  허브 CLAUDE.md 생성: $HUBD/CLAUDE.md"
   fi
+}
+
+cmd_init() {
+  echo "── tell init — 셋업 마법사 ──"
+  echo "  개념: 세션 = 프로젝트 / 패널(역할) = 그 프로젝트에 상주하는 Claude 하나"
+  mkdir -p "$CONFIG_DIR"
+  HUB=""; HUBR=""
   echo ""
-  echo "프로젝트 세션을 추가합니다. (빈 세션명 입력 시 종료)"
+  echo "[1/2] 총괄 관리(허브) 세션 (선택)"
+  echo "      허브란? 여러 프로젝트를 대신 지휘해주는 '비서' Claude 세션입니다."
+  echo "      예) 허브에게 \"서버에 API 추가하고 웹에 버튼 달아줘\" 한 마디"
+  echo "          → 허브가 서버·웹 세션에 각각 시키고, 끝나면 결과를 모아 보고합니다."
+  echo "      없어도 됩니다 — 세션끼리는 직접 대화 가능. 나중에 'tell hub'로 추가할 수 있습니다."
+  printf "총괄 관리 세션을 만들까요? [y/N]: "; read -r MK
+  if [ "$MK" = "y" ] || [ "$MK" = "Y" ]; then
+    make_hub
+  else
+    echo "  ⤼ 건너뜀 (나중에 추가: tell hub)"
+  fi
+  echo ""
+  echo "[2/2] 프로젝트 등록"
+  echo "      프로젝트(세션) 하나에 역할(패널)을 여러 개 둘 수 있습니다. 예: 서버·웹·앱"
   while :; do
-    printf "세션 이름: "; read -r S; [ -z "$S" ] && break
-    ROLES=""
+    printf "프로젝트 이름 = 세션 이름 (빈 값 = 완료): "; read -r S; [ -z "$S" ] && break
     while :; do
-      printf "  역할(패널 제목, 빈 값=이 세션 끝): "; read -r R; [ -z "$R" ] && break
-      printf "  '%s' 디렉터리: " "$R"; read -r D; D=${D/#\~/$HOME}
-      [ -z "$D" ] && { echo "  디렉터리는 필수"; continue; }
+      printf "  이 Claude의 역할 = 패널 이름 (예: 서버, 빈 값 = 다음 프로젝트): "; read -r R; [ -z "$R" ] && break
+      printf "  '%s' 담당 디렉터리: " "$R"; read -r D; D=${D/#\~/$HOME}
+      [ -z "$D" ] && { echo "  ⚠️ 디렉터리는 필수"; continue; }
       echo "$S|$R|$D" >> "$WS_CONF"
-      ROLES="$ROLES $R"
-      append_role_template "$D" "$S" "$ROLES" "$HUB" "$HUBR"
+      append_role_template "$D" "$S" "$R" "$HUB" "$HUBR"
     done
   done
   echo ""
-  echo "✅ 설정 저장: $WS_CONF"
-  echo "다음: 'tell ws $HUB' 및 'tell ws <세션>' 으로 띄운 뒤, 허브에서 'tell <세션> <역할> \"핑퐁 테스트...\"'"
+  echo "✅ 저장: $WS_CONF"
+  echo "다음 단계:"
+  [ -n "$HUB" ] && echo "  tell ws $HUB           # 허브 띄우기"
+  echo "  tell ws <프로젝트>      # 프로젝트 띄우기 (패널 분할 + claude 자동 실행)"
+  echo "  tell list              # 말 걸 수 있는 주소 확인"
 }
 
 cmd_adopt() {
@@ -102,12 +124,20 @@ cmd_adopt() {
   command -v tmux >/dev/null 2>&1 || { echo "tmux 없음"; exit 1; }
   tmux ls >/dev/null 2>&1 || { echo "떠 있는 tmux 세션 없음 — 'tell init'을 쓰세요"; exit 1; }
   mkdir -p "$CONFIG_DIR"
-  printf "허브(비서)로 쓸 세션/역할 (예: hub hub) [hub hub]: "; read -r HUB HUBR _junk
-  HUB=${HUB:-hub}; HUBR=${HUBR:-hub}
   echo ""
+  echo "[1/2] 총괄 관리(허브) 세션 (선택)"
+  echo "      허브란? 여러 프로젝트를 대신 지휘해주는 '비서' Claude 세션 — 일을 나눠 시키고 결과를 모아 보고."
+  echo "      이미 허브로 쓰는 세션이 있으면 '세션 역할'로 지정 (예: hub hub)."
+  echo "      없으면 그냥 엔터 — 나중에 'tell hub'로 추가할 수 있습니다."
+  printf "허브 지정 [엔터 = 건너뜀]: "; read -r HUB HUBR _junk
+  HUBR=${HUBR:-$HUB}
+  [ -z "$HUB" ] && echo "  ⤼ 건너뜀 (나중에 추가: tell hub)"
+  echo ""
+  echo "[2/2] 패널 스캔 — 각 패널(Claude)을 어떤 역할(주소)로 쓸지 정합니다."
   tmux list-panes -a -F '#{session_name}|#{pane_id}|#{pane_title}|#{pane_current_path}' | while IFS='|' read -r S P T D; do
-    echo "패널: $S / \"$T\"  ($D)"
-    printf "  역할 이름으로 사용? [엔터=\"%s\" 그대로 / 새이름 입력 / s=건너뜀]: " "$T"; read -r ANS </dev/tty
+    echo ""
+    echo "▸ 프로젝트(세션) '$S' · 패널 \"$T\" · 디렉터리 $D"
+    printf "  이 Claude의 역할 이름? [엔터=\"%s\" 유지 / 새 이름 입력 / s=건너뜀]: " "$T"; read -r ANS </dev/tty
     [ "$ANS" = "s" ] && { echo "  ⤼ 건너뜀"; continue; }
     ROLE=${ANS:-$T}
     [ "$ROLE" != "$T" ] && tmux select-pane -t "$P" -T "$ROLE"
@@ -119,7 +149,67 @@ cmd_adopt() {
     fi
   done
   echo ""
-  echo "✅ 편입 완료. 설정: $WS_CONF"
+  echo "✅ 편입 완료. 설정: $WS_CONF   (확인: tell list)"
+}
+
+cmd_hub() {
+  echo "── tell hub — 총괄 관리(허브) 세션 추가 ──"
+  echo "  허브란? 여러 프로젝트를 대신 지휘해주는 '비서' Claude 세션입니다."
+  echo "  예) 허브에게 \"서버에 API 추가하고 웹에 버튼 달아줘\" → 알아서 나눠 시키고 취합 보고."
+  mkdir -p "$CONFIG_DIR"
+  make_hub
+  echo ""
+  echo "✅ 등록 완료. 다음: tell ws $HUB   (참고: 이후 init/adopt로 등록하는 프로젝트 규약에 이 허브 주소가 반영됩니다)"
+}
+
+cmd_list() {
+  command -v tmux >/dev/null 2>&1 || { echo "tmux 없음"; exit 1; }
+  tmux ls >/dev/null 2>&1 || { echo "떠 있는 tmux 세션 없음 — 'tell ws <세션>' 으로 띄우세요"; exit 0; }
+  echo "── 주소록 — 사용법: tell <세션> <역할> \"<메시지>\" ──"
+  printf '%-16s %-16s %-6s %-8s %s\n' "세션" "역할" "규약" "실행" "디렉터리"
+  tmux list-panes -a -F '#{session_name}|#{pane_title}|#{pane_current_path}|#{pane_current_command}' \
+  | while IFS='|' read -r S T D C; do
+      # 규약 체크: Claude Code는 상위 폴더 CLAUDE.md도 상속하므로 조상 디렉터리까지 올라가며 확인
+      conv="❌"; dir="$D"
+      while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+        if [ -f "$dir/CLAUDE.md" ] && grep -q '세션 요청 - KEY' "$dir/CLAUDE.md" 2>/dev/null; then conv="✅"; break; fi
+        dir=$(dirname "$dir")
+      done
+      case "$C" in claude|node|[0-9]*.[0-9]*) run="claude" ;; *) run="$C" ;; esac   # claude CLI는 버전 문자열로 보고되기도 함
+      printf '%-16s %-16s %-6s %-8s %s\n' "$S" "$T" "$conv" "$run" "$D"
+    done
+  echo ""
+  echo "규약 ❌ = 그 디렉터리 CLAUDE.md에 응답 규약 없음 → 'tell adopt'로 편입하면 응답이 돌아옵니다."
+}
+
+cmd_rm() {
+  local NAME="${1:-}"
+  if [ -z "$NAME" ]; then
+    echo "usage: tell rm <세션>"
+    echo "── 실행 중 세션 ──"; tmux ls 2>/dev/null || echo "(없음)"
+    if [ -f "$WS_CONF" ]; then
+      echo "── 설정된 세션 ──"; grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | awk -F'|' '{print $1}' | sort -u
+    fi
+    exit 2
+  fi
+  local did=0
+  if tmux has-session -t "=$NAME" 2>/dev/null; then
+    local n; n=$(tmux list-panes -t "=$NAME" 2>/dev/null | wc -l | tr -d ' ')
+    printf "tmux 세션 '%s'(패널 %s개)를 종료할까요? 진행 중인 Claude 대화가 닫힙니다 [y/N]: " "$NAME" "$n"; read -r A
+    if [ "$A" = "y" ] || [ "$A" = "Y" ]; then tmux kill-session -t "=$NAME" && echo "  ✅ tmux 세션 종료됨"; did=1; fi
+  else
+    echo "  ℹ️ 실행 중인 tmux 세션 '$NAME' 없음"
+  fi
+  if [ -f "$WS_CONF" ] && LC_ALL=C awk -F'|' -v s="$NAME" '$1==s{found=1} END{exit !found}' "$WS_CONF"; then
+    printf "설정(workspaces.conf)의 '%s' 항목도 제거할까요? [y/N]: " "$NAME"; read -r B
+    if [ "$B" = "y" ] || [ "$B" = "Y" ]; then
+      cp "$WS_CONF" "$WS_CONF.bak"
+      LC_ALL=C awk -F'|' -v s="$NAME" '$1!=s' "$WS_CONF.bak" > "$WS_CONF"
+      echo "  ✅ 설정에서 제거됨 (백업: $WS_CONF.bak)"; did=1
+    fi
+  fi
+  [ "$did" = "0" ] && echo "  (변경 없음)"
+  return 0
 }
 
 cmd_ws() {
@@ -155,6 +245,9 @@ cmd_ws() {
 case "${1:-}" in
   init)   shift; cmd_init "$@";   exit $? ;;
   adopt)  shift; cmd_adopt "$@";  exit $? ;;
+  hub)    shift; cmd_hub "$@";    exit $? ;;
+  list)   shift; cmd_list;        exit $? ;;
+  rm)     shift; cmd_rm "${1:-}"; exit $? ;;
   ws)     shift; cmd_ws "${1:-}"; exit $? ;;
   doctor) shift; cmd_doctor;      exit $? ;;
 esac
@@ -171,7 +264,7 @@ fi
 
 SESSION="${1:-}"; ROLE="${2:-}"; shift 2 2>/dev/null; MSG="$*"
 if [ -z "$SESSION" ] || [ -z "$ROLE" ] || [ -z "$MSG" ]; then
-  echo "usage: tell [-r <KEY>] <세션> <역할> <메시지>   |   tell init|adopt|ws|doctor"; exit 2
+  echo "usage: tell [-r <KEY>] <세션> <역할> <메시지>   |   tell init|adopt|hub|list|rm|ws|doctor"; exit 2
 fi
 
 # LC_ALL=C: macOS awk가 일부 로케일에서 비ASCII 문자열 == 비교를 깨뜨리는 버그 회피(바이트 단위 비교)
