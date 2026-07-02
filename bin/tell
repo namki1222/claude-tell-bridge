@@ -110,7 +110,9 @@ make_hub() { # 허브 세션 등록 + 허브 CLAUDE.md 생성. 성공 시 HUB/HU
 cmd_init() {
   banner "init · 셋업 마법사"
   note "개념: 세션 = 프로젝트 / 패널(역할) = 그 프로젝트에 상주하는 Claude 하나"
+  note "언제든 Ctrl+C 로 종료할 수 있습니다 — 그때까지 입력한 내용은 저장됩니다."
   mkdir -p "$CONFIG_DIR"
+  trap 'echo ""; ok "지금까지 입력분 저장됨: $WS_CONF   (이어서: tell init / 확인: tell list)"; exit 0' INT
   HUB=""; HUBR=""
   step "[1/2] 총괄 관리(허브) 세션 — 선택사항"
   note "허브란? 여러 프로젝트를 대신 지휘해주는 '비서' Claude 세션입니다."
@@ -137,6 +139,7 @@ cmd_init() {
       echo "$S|$R|$D" >> "$WS_CONF"
       append_role_template "$D" "$S" "$R" "$HUB" "$HUBR"
       ok "패널 추가 완료 — ${C_B}$S · $R${C_X}"
+      note "계속 추가하려면 다음 패널 이름 입력 · 그만하려면 엔터(빈 값) 또는 Ctrl+C"
       note "────────────────────────────────────────"
     done
     ok "프로젝트 '$S' 구성 완료"
@@ -154,7 +157,9 @@ cmd_adopt() {
   banner "adopt · 떠 있는 세션 편입 (재시작 불필요)"
   command -v tmux >/dev/null 2>&1 || { warn "tmux 없음"; exit 1; }
   tmux ls >/dev/null 2>&1 || { warn "떠 있는 tmux 세션 없음 — 'tell init'을 쓰세요"; exit 1; }
+  note "언제든 Ctrl+C 로 종료할 수 있습니다 — 그때까지 편입한 패널은 저장됩니다."
   mkdir -p "$CONFIG_DIR"
+  trap 'echo ""; ok "지금까지 편입분 저장됨: $WS_CONF   (확인: tell list)"; exit 0' INT
   step "[1/2] 총괄 관리(허브) 세션 — 선택사항"
   note "허브란? 여러 프로젝트를 대신 지휘해주는 '비서' Claude 세션 — 일을 나눠 시키고 결과를 모아 보고."
   note "이미 허브로 쓰는 세션이 있으면 '세션 역할'로 지정 (예: hub hub). 없으면 그냥 엔터."
