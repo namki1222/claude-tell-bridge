@@ -6,9 +6,10 @@
 #   tell -r <KEY> <세션> <역할> "<메시지>"  응답 전송 (받은 요청의 KEY 그대로)
 # 관리:
 #   tell ws [<세션>]                     워크스페이스 부트스트랩/접속 (설정: workspaces.conf)
+#   tell up                              설정된 허브·프로젝트 세션 전부 켜기 → 허브로 접속
 #   tell init                            셋업 마법사 — 허브(선택) → 프로젝트/역할/디렉터리
-#   tell adopt                           떠 있는 tmux 세션을 브릿지에 편입 (재시작 불필요)
-#   tell hub                             총괄 관리(허브) 세션을 나중에 추가
+#   tell adopt                           쓰던 Claude 가져오기 — 떠 있는 패널 편입 + 기존 대화(세션ID) 이어받기
+#   tell hub                             총괄 관리(허브) 세션 등록 (허브는 시스템 전체에 하나만)
 #   tell list                            주소록 — 말 걸 수 있는 세션:역할 + 규약 여부
 #   tell rm <세션>                       세션 정리 — tmux 종료 + 설정에서 제거 (각각 확인)
 #   tell doctor                          환경 점검
@@ -26,6 +27,7 @@
 set -u
 CONFIG_DIR="${TELL_CONFIG_DIR:-$HOME/.config/claude-tell-bridge}"
 WS_CONF="$CONFIG_DIR/workspaces.conf"
+HUB_FILE="$CONFIG_DIR/hub"   # 허브 포인터 '세션|역할' — 허브는 시스템 전체에 하나만
 
 # ── 스크립트 실제 위치(심링크 해제) → templates/ 찾기 ──────────────────────────
 resolve_self() {
@@ -75,6 +77,7 @@ cmd_doctor() {
   if command -v claude >/dev/null 2>&1; then echo "✅ claude $(claude --version 2>/dev/null | awk '{print $1}')"; else echo "⚠️  claude CLI 없음 — 메시징은 되지만 받는 쪽 AI가 없음"; fi
   if [ -n "${TMUX:-}" ]; then echo "✅ tmux 세션 안에서 실행 중 (발신자 헤더 자동)"; else echo "ℹ️  tmux 밖 — 발신자(from) 헤더 없이 전송됨"; fi
   if [ -f "$WS_CONF" ]; then echo "✅ 워크스페이스 설정: $WS_CONF ($(grep -cvE '^[[:space:]]*(#|$)' "$WS_CONF" 2>/dev/null || echo 0)줄)"; else echo "ℹ️  워크스페이스 설정 없음 — 'tell init' 또는 'tell adopt'로 생성"; fi
+  if get_hub; then echo "✅ 허브: $HUB · $HUBR (허브는 하나만)"; else echo "ℹ️  허브 없음 — 'tell hub'로 등록 (선택)"; fi
   [ -f "$TEMPLATE_DIR/CLAUDE-section-role.md" ] && echo "✅ 패키지 리소스 정상" || echo "⚠️  패키지 손상 — 'npm i -g claude-tell-bridge' 재설치 필요"
   return $ok
 }
@@ -94,10 +97,49 @@ append_role_template() { # $1=dir  $2=session  $3=roles(공백구분)  $4=hub_se
   return 0
 }
 
+list_claude_sessions() { # $1=dir — 그 디렉터리에서 쓰던 Claude 대화 목록(최근 5개). 있으면 0
+  local proj; proj="$HOME/.claude/projects/$(printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g')"
+  ls "$proj"/*.jsonl >/dev/null 2>&1 || return 1
+  note "이 디렉터리에서 쓰던 최근 Claude 대화:"
+  ls -t "$proj"/*.jsonl 2>/dev/null | head -5 | while read -r f; do
+    printf '    %s  %s(마지막 사용: %s)%s\n' "$(basename "$f" .jsonl)" "$C_D" "$(date -r "$f" '+%m/%d %H:%M' 2>/dev/null)" "$C_X"
+  done
+  return 0
+}
+
+ask_resume_id() { # $1=dir — 이어받을 대화 세션ID를 물어봄. 결과는 전역 RID (빈 값 = 새 대화)
+  RID=""
+  list_claude_sessions "$1" || return 0
+  # /dev/tty 고정: adopt의 파이프 루프 안에서도 사용자 입력을 받기 위함 (마법사는 대화형 전용)
+  ask "  이어받을 대화 세션ID (엔터 = 새 대화로 시작): "; read -r RID </dev/tty
+}
+
+dir_from_session_id() { # $1=세션ID → 대화 기록(jsonl)의 cwd에서 담당 디렉터리 역추적. 성공 시 stdout
+  local f
+  f=$(ls "$HOME"/.claude/projects/*/"$1".jsonl 2>/dev/null | head -1)
+  [ -n "$f" ] || return 1
+  grep -o '"cwd":"[^"]*"' "$f" 2>/dev/null | head -1 | sed 's/^"cwd":"//; s/"$//'
+}
+
+get_hub() { # 등록된 허브 로드 → HUB/HUBR 설정. 없으면 1
+  HUB=""; HUBR=""
+  [ -f "$HUB_FILE" ] || return 1
+  IFS='|' read -r HUB HUBR < "$HUB_FILE"
+  [ -n "$HUB" ] || return 1
+  HUBR=${HUBR:-$HUB}
+  return 0
+}
+
 make_hub() { # 허브 세션 등록 + 허브 CLAUDE.md 생성. 성공 시 HUB/HUBR 설정됨 (허브는 단일 패널 → 이름=역할)
+  if get_hub; then # 허브는 하나만 — 이미 있으면 새로 만들지 않는다
+    warn "허브는 하나만 둘 수 있습니다 — 이미 '$HUB · $HUBR' 이 허브입니다 (교체: tell rm $HUB 후 tell hub)"
+    return 1
+  fi
   ask "  허브 이름 [hub]: "; read -r HUB; HUB=${HUB:-hub}; HUBR="$HUB"
   ask "  허브 작업 디렉터리 [~/tell-hub]: "; read -r HUBD; HUBD=$(abspath "${HUBD:-$HOME/tell-hub}")
-  echo "$HUB|$HUBR|$HUBD" >> "$WS_CONF"; mkdir -p "$HUBD"
+  ask_resume_id "$HUBD"
+  echo "$HUB|$HUBR|$HUBD|$RID" >> "$WS_CONF"; mkdir -p "$HUBD"
+  echo "$HUB|$HUBR" > "$HUB_FILE"
   if [ -f "$TEMPLATE_DIR/CLAUDE-section-hub.md" ] && ! grep -q '허브(비서)' "$HUBD/CLAUDE.md" 2>/dev/null; then
     { [ -f "$HUBD/CLAUDE.md" ] && echo ""; sed -e "s/{{HUB_SESSION}}/$HUB/g" -e "s/{{HUB_ROLE}}/$HUBR/g" "$TEMPLATE_DIR/CLAUDE-section-hub.md"; } >> "$HUBD/CLAUDE.md"
   fi
@@ -110,17 +152,20 @@ cmd_init() {
   note "언제든 Ctrl+C 로 종료할 수 있습니다 — 그때까지 입력한 내용은 저장됩니다."
   mkdir -p "$CONFIG_DIR"
   trap 'echo ""; ok "지금까지 입력분 저장됨: $WS_CONF   (이어서: tell init / 확인: tell list)"; exit 0' INT
-  HUB=""; HUBR=""
   step "[1/2] 총괄 관리(허브) 세션 — 선택사항"
-  note "허브란? 여러 프로젝트를 대신 지휘해주는 '비서' Claude 세션입니다."
-  note "예) 허브에게 \"서버에 API 추가하고 웹에 버튼 달아줘\" 한 마디"
-  note "    → 허브가 서버·웹 세션에 각각 시키고, 끝나면 결과를 모아 보고합니다."
-  note "없어도 됩니다 — 세션끼리는 직접 대화 가능. 나중에 'tell hub'로 추가할 수 있습니다."
-  ask "총괄 관리 세션을 만들까요? [y/N]: "; read -r MK
-  if [ "$MK" = "y" ] || [ "$MK" = "Y" ]; then
-    make_hub
+  if get_hub; then # 허브는 하나만 — 이미 있으면 그대로 쓰고 프로젝트 등록으로 넘어간다
+    ok "기존 허브 사용: ${C_B}$HUB · $HUBR${C_X}  (허브는 하나만 유지됩니다)"
   else
-    skip "건너뜀 (나중에 추가: tell hub)"
+    note "허브란? 여러 프로젝트를 대신 지휘해주는 '비서' Claude 세션입니다."
+    note "예) 허브에게 \"서버에 API 추가하고 웹에 버튼 달아줘\" 한 마디"
+    note "    → 허브가 서버·웹 세션에 각각 시키고, 끝나면 결과를 모아 보고합니다."
+    note "없어도 됩니다 — 세션끼리는 직접 대화 가능. 나중에 'tell hub'로 추가할 수 있습니다."
+    ask "총괄 관리 세션을 만들까요? [y/N]: "; read -r MK
+    if [ "$MK" = "y" ] || [ "$MK" = "Y" ]; then
+      make_hub
+    else
+      skip "건너뜀 (나중에 추가: tell hub)"
+    fi
   fi
   step "[2/2] 프로젝트 등록"
   note "프로젝트(세션) 하나에 역할(패널)을 여러 개 둘 수 있습니다. 예: 서버·웹·앱"
@@ -133,7 +178,8 @@ cmd_init() {
       ask "  추가할 패널(역할) 이름 (빈 값 = 이 프로젝트 완료): "; read -r R; [ -z "$R" ] && break
       ask "  '$R' 담당 디렉터리: "; read -r D; D=$(abspath "$D")
       [ -z "$D" ] && { warn "디렉터리는 필수"; continue; }
-      echo "$S|$R|$D" >> "$WS_CONF"
+      ask_resume_id "$D"
+      echo "$S|$R|$D|$RID" >> "$WS_CONF"
       append_role_template "$D" "$S" "$R" "$HUB" "$HUBR"
       ok "패널 추가 완료 — ${C_B}$S · $R${C_X}"
       note "계속 추가하려면 다음 패널 이름 입력 · 그만하려면 엔터(빈 값) 또는 Ctrl+C"
@@ -145,44 +191,84 @@ cmd_init() {
   ok "저장: $WS_CONF"
   echo ""
   echo "${C_B}다음 단계:${C_X}"
-  [ -n "$HUB" ] && echo "  ${C_C}tell ws $HUB${C_X}           # 허브 띄우기"
-  echo "  ${C_C}tell ws <프로젝트>${C_X}      # 프로젝트 띄우기 (패널 분할 + claude 자동 실행)"
+  echo "  ${C_C}tell up${C_X}                # 허브·프로젝트 전부 켜기 (허브로 접속)"
+  echo "  ${C_C}tell ws <프로젝트>${C_X}      # 하나만 띄우기 (패널 분할 + claude 자동 실행)"
   echo "  ${C_C}tell list${C_X}              # 말 걸 수 있는 주소 확인"
 }
 
 cmd_adopt() {
-  banner "adopt · 떠 있는 세션 편입 (재시작 불필요)"
+  banner "adopt · 쓰던 Claude 가져오기 (재시작 불필요)"
   command -v tmux >/dev/null 2>&1 || { warn "tmux 없음"; exit 1; }
-  tmux ls >/dev/null 2>&1 || { warn "떠 있는 tmux 세션 없음 — 'tell init'을 쓰세요"; exit 1; }
-  note "언제든 Ctrl+C 로 종료할 수 있습니다 — 그때까지 편입한 패널은 저장됩니다."
+  note "언제든 Ctrl+C 로 종료할 수 있습니다 — 그때까지 진행분은 저장됩니다."
   mkdir -p "$CONFIG_DIR"
-  trap 'echo ""; ok "지금까지 편입분 저장됨: $WS_CONF   (확인: tell list)"; exit 0' INT
-  step "[1/2] 총괄 관리(허브) 세션 — 선택사항"
-  note "허브란? 여러 프로젝트를 대신 지휘해주는 '비서' Claude 세션 — 일을 나눠 시키고 결과를 모아 보고."
-  note "이미 허브로 쓰는 세션이 있으면 '세션 역할'로 지정 (예: hub hub). 없으면 그냥 엔터."
-  ask "허브 지정 [엔터 = 건너뜀]: "; read -r HUB HUBR _junk
-  HUBR=${HUBR:-$HUB}
-  [ -z "$HUB" ] && skip "건너뜀 (나중에 추가: tell hub)"
-  step "[2/2] 패널 스캔 — 각 패널(Claude)을 어떤 주소(역할)로 쓸지 정합니다"
-  tmux list-panes -a -F '#{session_name}|#{pane_id}|#{pane_title}|#{pane_current_path}' | while IFS='|' read -r S P T D; do
-    echo ""
-    echo "${C_B}▸ 프로젝트(세션) '$S' · 패널 \"$T\"${C_X}"
-    note "  디렉터리: $D"
-    ask "  이 Claude의 역할 이름? [엔터=\"$T\" 유지 / 새 이름 입력 / s=건너뜀]: "; read -r ANS </dev/tty
-    [ "$ANS" = "s" ] && { skip "건너뜀"; continue; }
-    ROLE=${ANS:-$T}
-    [ "$ROLE" != "$T" ] && tmux select-pane -t "$P" -T "$ROLE"
-    echo "$S|$ROLE|$D" >> "$WS_CONF"
-    append_role_template "$D" "$S" "$ROLE" "$HUB" "$HUBR"
-    ok "패널 편입 완료 — ${C_B}$S · $ROLE${C_X}"
-    ask "  이 패널과 바로 연결 테스트(핑퐁)할까요? [y/N]: "; read -r GO </dev/tty
-    if [ "$GO" = "y" ]; then
-      "$0" "$S" "$ROLE" "연결 확인. CLAUDE.md를 Read로 다시 읽은 뒤, 받은 키로 tell -r 로 '퐁 정상' 한 줄만 응답해줘."
+  trap 'echo ""; ok "지금까지 진행분 저장됨: $WS_CONF   (확인: tell list)"; exit 0' INT
+  local HAVE_TMUX=0; tmux ls >/dev/null 2>&1 && HAVE_TMUX=1
+  step "[1/3] 총괄 관리(허브) 세션 — 선택사항"
+  if get_hub; then # 허브는 하나만 — 이미 있으면 묻지 않는다
+    ok "기존 허브 사용: ${C_B}$HUB · $HUBR${C_X}  (허브는 하나만 유지됩니다)"
+  else
+    note "허브란? 여러 프로젝트를 대신 지휘해주는 '비서' Claude 세션 — 일을 나눠 시키고 결과를 모아 보고."
+    note "이미 허브로 쓰는 세션이 있으면 '세션 역할'로 지정 (예: hub hub). 없으면 그냥 엔터."
+    ask "허브 지정 [엔터 = 건너뜀]: "; read -r HUB HUBR _junk
+    HUBR=${HUBR:-$HUB}
+    if [ -n "$HUB" ]; then
+      echo "$HUB|$HUBR" > "$HUB_FILE"
+      ok "허브 등록: ${C_B}$HUB · $HUBR${C_X}"
+    else
+      skip "건너뜀 (나중에 추가: tell hub)"
     fi
-    note "────────────────────────────────────────"
+  fi
+  step "[2/3] 떠 있는 패널 편입 — 각 패널(Claude)을 어떤 주소(역할)로 쓸지 정합니다"
+  if [ "$HAVE_TMUX" = "1" ]; then
+    tmux list-panes -a -F '#{session_name}|#{pane_id}|#{pane_title}|#{pane_current_path}' | while IFS='|' read -r S P T D; do
+      echo ""
+      echo "${C_B}▸ 프로젝트(세션) '$S' · 패널 \"$T\"${C_X}"
+      note "  디렉터리: $D"
+      ask "  이 Claude의 역할 이름? [엔터=\"$T\" 유지 / 새 이름 입력 / s=건너뜀]: "; read -r ANS </dev/tty
+      [ "$ANS" = "s" ] && { skip "건너뜀"; continue; }
+      ROLE=${ANS:-$T}
+      [ "$ROLE" != "$T" ] && tmux select-pane -t "$P" -T "$ROLE"
+      echo "$S|$ROLE|$D" >> "$WS_CONF"
+      append_role_template "$D" "$S" "$ROLE" "$HUB" "$HUBR"
+      ok "패널 편입 완료 — ${C_B}$S · $ROLE${C_X}"
+      ask "  이 패널과 바로 연결 테스트(핑퐁)할까요? [y/N]: "; read -r GO </dev/tty
+      if [ "$GO" = "y" ]; then
+        "$0" "$S" "$ROLE" "연결 확인. CLAUDE.md를 Read로 다시 읽은 뒤, 받은 키로 tell -r 로 '퐁 정상' 한 줄만 응답해줘."
+      fi
+      note "────────────────────────────────────────"
+    done
+  else
+    skip "떠 있는 세션 없음 — 건너뜀"
+  fi
+  step "[3/3] 터미널 탭에서 쓰던 대화 가져오기 — 선택사항"
+  note "일반 터미널(분할 화면 밖)에서 쓰던 Claude 대화를 이어받아 패널로 만듭니다."
+  note "세션ID만 있으면 됩니다 — 담당 디렉터리는 대화 기록에서 자동으로 찾습니다."
+  while :; do
+    echo ""
+    ask "프로젝트 이름 = 세션 이름 (빈 값 = 완료): "; read -r S; [ -z "$S" ] && break
+    ask "  이 Claude의 역할(패널) 이름: "; read -r R; [ -z "$R" ] && { warn "역할은 필수"; continue; }
+    ask "  이어받을 대화 세션ID (모르면 엔터 — 디렉터리에서 찾아줌): "; read -r RID
+    if [ -n "$RID" ]; then
+      D=$(dir_from_session_id "$RID") || D=""
+      if [ -n "$D" ]; then
+        ok "담당 디렉터리 자동 감지: $D"
+      else
+        warn "세션ID '$RID'의 대화 기록을 못 찾음 — ID를 확인하거나 디렉터리를 직접 입력하세요"
+        ask "  담당 디렉터리: "; read -r D; D=$(abspath "$D")
+        [ -z "$D" ] && { warn "디렉터리는 필수"; continue; }
+      fi
+    else
+      ask "  담당 디렉터리(그 대화를 쓰던 곳): "; read -r D; D=$(abspath "$D")
+      [ -z "$D" ] && { warn "디렉터리는 필수"; continue; }
+      ask_resume_id "$D"
+      [ -z "$RID" ] && note "(이어받을 대화 없음 — 새 대화로 등록)"
+    fi
+    echo "$S|$R|$D|$RID" >> "$WS_CONF"
+    append_role_template "$D" "$S" "$R" "$HUB" "$HUBR"
+    ok "가져오기 완료 — ${C_B}$S · $R${C_X}${RID:+  (대화 $RID 이어받음)}"
   done
   banner "완료"
-  ok "편입 완료 — 확인: ${C_C}tell list${C_X}"
+  ok "확인: ${C_C}tell list${C_X}   ·   띄우기: ${C_C}tell ws <프로젝트>${C_X}"
 }
 
 cmd_hub() {
@@ -191,7 +277,7 @@ cmd_hub() {
   note "예) 허브에게 \"서버에 API 추가하고 웹에 버튼 달아줘\" → 알아서 나눠 시키고 취합 보고."
   echo ""
   mkdir -p "$CONFIG_DIR"
-  make_hub
+  make_hub || exit 1
   echo ""
   echo "${C_B}다음:${C_X} ${C_C}tell ws $HUB${C_X}   ${C_D}(이후 init/adopt로 등록하는 프로젝트에 이 허브 주소가 연결됩니다)${C_X}"
 }
@@ -244,9 +330,35 @@ cmd_rm() {
       cp "$WS_CONF" "$WS_CONF.bak"
       LC_ALL=C awk -F'|' -v s="$NAME" '$1!=s' "$WS_CONF.bak" > "$WS_CONF"
       ok "설정에서 제거됨 ${C_D}(백업: $WS_CONF.bak)${C_X}"; did=1
+      if get_hub && [ "$HUB" = "$NAME" ]; then # 허브였다면 허브 포인터도 해제 (새 허브: tell hub)
+        rm -f "$HUB_FILE"
+        ok "허브 해제됨 — 새 허브 등록: ${C_C}tell hub${C_X}"
+      fi
     fi
   fi
   [ "$did" = "0" ] && note "(변경 없음)"
+  return 0
+}
+
+ws_boot() { # $1=세션 — 설정대로 부트스트랩(패널 분할·제목·claude 실행). 이미 떠 있으면 그대로 0
+  local NAME="$1" p=""
+  tmux has-session -t "=$NAME" 2>/dev/null && return 0
+  # 주의: 루프 안 tmux 호출에 </dev/null — stdin(설정 라인)을 삼켜 다음 패널을 건너뛰는 버그 방지
+  grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | LC_ALL=C awk -F'|' -v s="$NAME" '$1==s' | while IFS='|' read -r S R D RID; do
+    D=${D/#\~/$HOME}
+    if [ ! -d "$D" ]; then echo "⚠️ 디렉터리 없음: $D (건너뜀)"; continue; fi
+    if ! tmux has-session -t "=$NAME" 2>/dev/null; then
+      p=$(tmux new-session -d -P -F '#{pane_id}' -s "$NAME" -c "$D" </dev/null)
+    else
+      # split 타깃은 세션명이 아니라 패널이어야 함 → 직전 패널 id 사용
+      p=$(tmux split-window -h -P -F '#{pane_id}' -t "$p" -c "$D" </dev/null)
+    fi
+    tmux select-pane -t "$p" -T "$R" </dev/null
+    # 4번째 필드 = Claude 대화 세션ID → 새 대화 대신 그 대화를 이어받아 실행
+    tmux send-keys -t "$p" "claude${RID:+ --resume $RID}" Enter </dev/null
+  done
+  tmux has-session -t "=$NAME" 2>/dev/null || return 1
+  tmux select-layout -t "=$NAME" tiled 2>/dev/null
   return 0
 }
 
@@ -259,31 +371,40 @@ cmd_ws() {
     grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | awk -F'|' '{print $1}' | sort -u
     exit 0
   fi
-  if ! tmux has-session -t "=$NAME" 2>/dev/null; then
-    local p
-    # 주의: 루프 안 tmux 호출에 </dev/null — stdin(설정 라인)을 삼켜 다음 패널을 건너뛰는 버그 방지
-    grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | LC_ALL=C awk -F'|' -v s="$NAME" '$1==s' | while IFS='|' read -r S R D; do
-      D=${D/#\~/$HOME}
-      if [ ! -d "$D" ]; then echo "⚠️ 디렉터리 없음: $D (건너뜀)"; continue; fi
-      if ! tmux has-session -t "=$NAME" 2>/dev/null; then
-        p=$(tmux new-session -d -P -F '#{pane_id}' -s "$NAME" -c "$D" </dev/null)
-      else
-        # split 타깃은 세션명이 아니라 패널이어야 함 → 직전 패널 id 사용
-        p=$(tmux split-window -h -P -F '#{pane_id}' -t "$p" -c "$D" </dev/null)
-      fi
-      tmux select-pane -t "$p" -T "$R" </dev/null
-      tmux send-keys -t "$p" "claude" Enter </dev/null
-    done
-    tmux has-session -t "=$NAME" 2>/dev/null || { echo "알 수 없는 워크스페이스: $NAME"; exit 1; }
-    tmux select-layout -t "=$NAME" tiled 2>/dev/null
-  fi
+  ws_boot "$NAME" || { echo "알 수 없는 워크스페이스: $NAME"; exit 1; }
   if [ -n "${TMUX:-}" ]; then tmux switch-client -t "=$NAME"; else tmux attach -t "=$NAME"; fi
+}
+
+cmd_up() { # 설정된 허브·프로젝트 세션 전부 켜기 → 허브(있으면)로 접속
+  if [ ! -f "$WS_CONF" ]; then echo "설정 없음: $WS_CONF — 'tell init' 먼저"; exit 1; fi
+  banner "up · 전체 켜기"
+  local NAMES; NAMES=$(grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | awk -F'|' '{print $1}' | awk '!seen[$0]++')
+  [ -n "$NAMES" ] || { warn "설정된 세션 없음 — 'tell init' 먼저"; exit 1; }
+  local S
+  while IFS= read -r S; do
+    if tmux has-session -t "=$S" 2>/dev/null; then
+      skip "$S — 이미 떠 있음"
+    elif ws_boot "$S"; then
+      ok "$S 켜짐"
+    else
+      warn "$S 부트 실패 (디렉터리 확인: tell ws $S)"
+    fi
+  done <<EOF
+$NAMES
+EOF
+  local TARGET=""
+  get_hub && tmux has-session -t "=$HUB" 2>/dev/null && TARGET="$HUB"
+  [ -z "$TARGET" ] && TARGET=$(printf '%s\n' "$NAMES" | head -1)
+  echo ""
+  if [ "$TARGET" = "${HUB:-}" ]; then ok "접속: $TARGET (허브)"; else ok "접속: $TARGET"; fi
+  if [ -n "${TMUX:-}" ]; then tmux switch-client -t "=$TARGET"; else tmux attach -t "=$TARGET"; fi
 }
 
 case "${1:-}" in
   init)   shift; cmd_init "$@";   exit $? ;;
   adopt)  shift; cmd_adopt "$@";  exit $? ;;
   hub)    shift; cmd_hub "$@";    exit $? ;;
+  up)     shift; cmd_up;          exit $? ;;
   list)   shift; cmd_list;        exit $? ;;
   rm)     shift; cmd_rm "${1:-}"; exit $? ;;
   ws)     shift; cmd_ws "${1:-}"; exit $? ;;
@@ -302,7 +423,7 @@ fi
 
 SESSION="${1:-}"; ROLE="${2:-}"; shift 2 2>/dev/null; MSG="$*"
 if [ -z "$SESSION" ] || [ -z "$ROLE" ] || [ -z "$MSG" ]; then
-  echo "usage: tell [-r <KEY>] <세션> <역할> <메시지>   |   tell init|adopt|hub|list|rm|ws|doctor"; exit 2
+  echo "usage: tell [-r <KEY>] <세션> <역할> <메시지>   |   tell init|adopt|hub|up|list|rm|ws|doctor"; exit 2
 fi
 
 # LC_ALL=C: macOS awk가 일부 로케일에서 비ASCII 문자열 == 비교를 깨뜨리는 버그 회피(바이트 단위 비교)
