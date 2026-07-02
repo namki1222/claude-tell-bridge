@@ -6,12 +6,13 @@
 #   tell -r <KEY> <세션> <역할> "<메시지>"  응답 전송 (받은 요청의 KEY 그대로)
 # 관리:
 #   tell ws [<세션>]                     워크스페이스 부트스트랩/접속 (설정: workspaces.conf)
-#   tell up [--tabs]                     설정된 허브·프로젝트 세션 전부 켜기 → 허브로 접속 (--tabs: 세션별 터미널 탭)
+#   tell up [<세션>|--all] [--tabs]      켜기 — 전체(허브 접속) 또는 하나만 (--tabs: 세션별 터미널 탭)
+#   tell down <세션>|--all               끄기 — 세션 종료만, 설정은 유지
 #   tell init                            셋업 마법사 — 허브(선택) → 프로젝트/역할/디렉터리
 #   tell adopt                           쓰던 Claude 가져오기 — 떠 있는 패널 편입 + 기존 대화(세션ID) 이어받기
 #   tell hub                             총괄 관리(허브) 세션 등록 (허브는 시스템 전체에 하나만)
 #   tell list                            주소록 — 말 걸 수 있는 세션:역할 + 규약 여부
-#   tell rm <세션>                       세션 정리 — tmux 종료 + 설정에서 제거 (각각 확인)
+#   tell rm <세션>                       워크스페이스 삭제 — 종료+설정+규약 블록 제거 (프로젝트 파일 무손상)
 #   tell doctor                          환경 점검
 #   tell completion                      셸 자동완성 스크립트 — .zshrc에 eval "$(tell completion)"
 #   tell help                            전체 명령·설명 (인자 없이 tell만 쳐도 표시)
@@ -92,10 +93,11 @@ cmd_help() {
   row "hub"        "총괄 관리(허브=비서) 세션 등록 — 시스템 전체에 하나만"
   echo ""
   echo "${C_Y}${C_B}운영${C_X}"
-  row "up"         "설정된 허브·프로젝트 세션 전부 켜기 → 허브로 접속 (--tabs: 세션별 터미널 탭)"
+  row "up"         "켜기 — tell up(전체→허브 접속) / up <세션>(하나만) / --tabs(터미널 탭)"
+  row "down"       "끄기 — tell down <세션> / down --all (설정은 유지)"
   row "ws"         "세션 하나 띄우기/접속 — tell ws <세션> (인자 없으면 목록)"
   row "list"       "주소록 — 지금 말 걸 수 있는 세션:역할 + 연결·실행 상태"
-  row "rm"         "세션 정리 — tell rm <세션> (종료 + 설정 제거, 각각 확인)"
+  row "rm"         "워크스페이스 삭제 — 종료+설정+규약 블록 제거 (프로젝트 파일 무손상)"
   echo ""
   echo "${C_Y}${C_B}진단·편의${C_X}"
   row "doctor"     "환경 점검 — tmux·claude·설정·허브·패키지 리소스"
@@ -345,40 +347,108 @@ cmd_list() {
   note "연결 ❌ = 아직 브릿지에 편입 안 된 패널 → 'tell adopt'로 편입하면 응답이 돌아옵니다."
 }
 
-cmd_rm() {
+remove_bridge_section() { # $1=dir — CLAUDE.md에서 자동 삽입된 규약 블록만 제거 (백업 .bak, 그 외 내용 보존)
+  local f="$1/CLAUDE.md"
+  [ -f "$f" ] || return 1
+  grep -q '<!-- claude-tell-bridge' "$f" || return 1
+  cp "$f" "$f.bak"
+  awk '/<!-- claude-tell-bridge/{skip=1} !skip{print} /<!-- \/claude-tell-bridge -->/{skip=0}' "$f.bak" > "$f"
+  grep -q '[^[:space:]]' "$f" || rm -f "$f"   # 우리 블록뿐이었다면 빈 파일 정리
+  return 0
+}
+
+cmd_rm() { # 워크스페이스 삭제 — 종료 + 설정 제거 + 규약 블록 제거 (프로젝트 파일은 무손상)
   local NAME="${1:-}"
   if [ -z "$NAME" ]; then
-    banner "rm · 세션 정리"
-    echo "usage: ${C_B}tell rm <세션>${C_X}"
-    step "실행 중 세션"; tmux ls 2>/dev/null || note "(없음)"
+    banner "rm · 워크스페이스 삭제"
+    echo "usage: ${C_B}tell rm <세션>${C_X}   ${C_D}(끄기만 하려면: tell down <세션>)${C_X}"
     if [ -f "$WS_CONF" ]; then
-      step "설정된 세션"; grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | awk -F'|' '{print $1}' | sort -u
+      step "설정된 워크스페이스"; grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | awk -F'|' '{print $1}' | awk '!seen[$0]++'
     fi
     exit 2
   fi
-  banner "rm · '$NAME' 정리"
-  local did=0
-  if tmux has-session -t "=$NAME" 2>/dev/null; then
-    local n; n=$(tmux list-panes -t "=$NAME" 2>/dev/null | wc -l | tr -d ' ')
-    ask "tmux 세션 '$NAME'(패널 $n개)를 종료할까요? 진행 중인 Claude 대화가 닫힙니다 [y/N]: "; read -r A
-    if [ "$A" = "y" ] || [ "$A" = "Y" ]; then tmux kill-session -t "=$NAME" && ok "tmux 세션 종료됨"; did=1; fi
-  else
-    note "실행 중인 tmux 세션 '$NAME' 없음"
-  fi
-  if [ -f "$WS_CONF" ] && LC_ALL=C awk -F'|' -v s="$NAME" '$1==s{found=1} END{exit !found}' "$WS_CONF"; then
-    ask "설정에서도 '$NAME' 항목을 제거할까요? [y/N]: "; read -r B
-    if [ "$B" = "y" ] || [ "$B" = "Y" ]; then
-      cp "$WS_CONF" "$WS_CONF.bak"
-      LC_ALL=C awk -F'|' -v s="$NAME" '$1!=s' "$WS_CONF.bak" > "$WS_CONF"
-      ok "설정에서 제거됨 ${C_D}(백업: $WS_CONF.bak)${C_X}"; did=1
-      if get_hub && [ "$HUB" = "$NAME" ]; then # 허브였다면 허브 포인터도 해제 (새 허브: tell hub)
-        rm -f "$HUB_FILE"
-        ok "허브 해제됨 — 새 허브 등록: ${C_C}tell hub${C_X}"
+  banner "rm · '$NAME' 워크스페이스 삭제"
+  local IN_CONF=0 RUNNING=0
+  [ -f "$WS_CONF" ] && LC_ALL=C awk -F'|' -v s="$NAME" '$1==s{f=1} END{exit !f}' "$WS_CONF" && IN_CONF=1
+  tmux has-session -t "=$NAME" 2>/dev/null && RUNNING=1
+  if [ "$IN_CONF" = 0 ] && [ "$RUNNING" = 0 ]; then warn "'$NAME' — 설정에도 없고 실행 중도 아님"; exit 1; fi
+  note "삭제될 것:"
+  [ "$RUNNING" = 1 ] && note "  · 실행 중 세션 종료 (진행 중 대화 닫힘)"
+  [ "$IN_CONF" = 1 ] && note "  · workspaces.conf 등록 제거"
+  [ "$IN_CONF" = 1 ] && note "  · 담당 디렉터리 CLAUDE.md의 브릿지 규약 블록 제거"
+  get_hub && [ "$HUB" = "$NAME" ] && note "  · 허브 지정 해제"
+  note "  ${C_B}프로젝트 파일·코드는 건드리지 않습니다${C_X}"
+  ask "진행할까요? [y/N]: "; read -r A
+  { [ "$A" = "y" ] || [ "$A" = "Y" ]; } || { skip "취소됨"; exit 0; }
+  [ "$RUNNING" = 1 ] && tmux kill-session -t "=$NAME" && ok "세션 종료됨"
+  if [ "$IN_CONF" = 1 ]; then
+    local DIRS D
+    DIRS=$(grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | LC_ALL=C awk -F'|' -v s="$NAME" '$1==s{print $3}' | sort -u)
+    cp "$WS_CONF" "$WS_CONF.bak"
+    LC_ALL=C awk -F'|' -v s="$NAME" '$1!=s' "$WS_CONF.bak" > "$WS_CONF"
+    ok "설정에서 제거됨 ${C_D}(백업: $WS_CONF.bak)${C_X}"
+    while IFS= read -r D; do
+      [ -n "$D" ] || continue
+      D=${D/#\~/$HOME}
+      if grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | LC_ALL=C awk -F'|' -v d="$D" '$3==d{f=1} END{exit !f}'; then
+        skip "규약 유지: $D (다른 세션이 같은 디렉터리 사용 중)"
+      elif remove_bridge_section "$D"; then
+        ok "규약 제거: $D/CLAUDE.md ${C_D}(백업 .bak)${C_X}"
       fi
-    fi
+    done <<EOF
+$DIRS
+EOF
   fi
-  [ "$did" = "0" ] && note "(변경 없음)"
+  if get_hub && [ "$HUB" = "$NAME" ]; then
+    rm -f "$HUB_FILE"
+    ok "허브 해제됨 — 새 허브 등록: ${C_C}tell hub${C_X}"
+  fi
   return 0
+}
+
+cmd_down() { # 끄기 — tmux 세션 종료만, 설정은 유지 (반대: tell up)
+  local T="${1:-}"
+  banner "down · 끄기"
+  if [ -z "$T" ]; then
+    echo "usage: ${C_B}tell down <세션>${C_X} 또는 ${C_B}tell down --all${C_X}   ${C_D}(설정은 유지 — 완전 삭제는 tell rm)${C_X}"
+    step "실행 중 세션"; tmux ls 2>/dev/null || note "(없음)"
+    exit 2
+  fi
+  case "$T" in
+    --all|-all|all)
+      if [ ! -f "$WS_CONF" ]; then warn "설정 없음: $WS_CONF"; exit 1; fi
+      local NAMES S RUN=""
+      NAMES=$(grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | awk -F'|' '{print $1}' | awk '!seen[$0]++')
+      while IFS= read -r S; do
+        [ -n "$S" ] && tmux has-session -t "=$S" 2>/dev/null && RUN="$RUN$S
+"
+      done <<EOF
+$NAMES
+EOF
+      if [ -z "$RUN" ]; then note "떠 있는 설정 세션이 없습니다"; exit 0; fi
+      echo "종료 대상 (설정된 세션만 — 그 외 tmux 세션은 안 건드림):"
+      printf '%s' "$RUN" | sed 's/^/  · /'
+      ask "전부 종료할까요? 진행 중 대화가 닫힙니다 [y/N]: "; read -r A
+      { [ "$A" = "y" ] || [ "$A" = "Y" ]; } || { skip "취소됨"; exit 0; }
+      while IFS= read -r S; do
+        [ -n "$S" ] && tmux kill-session -t "=$S" 2>/dev/null && ok "$S 종료"
+      done <<EOF
+$RUN
+EOF
+      note "다시 켜기: ${C_C}tell up${C_X}"
+      ;;
+    *)
+      tmux has-session -t "=$T" 2>/dev/null || { warn "실행 중 아님: $T"; exit 1; }
+      local n; n=$(tmux list-panes -t "=$T" 2>/dev/null | wc -l | tr -d ' ')
+      # ${n}개: 변수 뒤에 한글이 바로 붙으면 macOS bash 3.2가 변수명을 잘못 파싱함 — 중괄호 필수
+      ask "'$T'(패널 ${n}개)를 종료할까요? 진행 중 대화가 닫힙니다 [y/N]: "; read -r A
+      if [ "$A" = "y" ] || [ "$A" = "Y" ]; then
+        tmux kill-session -t "=$T" && ok "$T 종료 — 다시 켜기: ${C_C}tell up $T${C_X}"
+      else
+        skip "취소됨"
+      fi
+      ;;
+  esac
 }
 
 ws_boot() { # $1=세션 — 설정대로 부트스트랩(패널 분할·제목·claude 실행). 이미 떠 있으면 그대로 0
@@ -430,11 +500,12 @@ _tell() {
   local pos=$((COMP_CWORD - idx + 1)) first="${COMP_WORDS[$idx]:-}"
   COMPREPLY=()
   if [ "$pos" -eq 1 ]; then
-    COMPREPLY=($(compgen -W "$(_tell_sessions) init adopt hub up ws list rm doctor completion help -r" -- "$cur"))
+    COMPREPLY=($(compgen -W "$(_tell_sessions) init adopt hub up down ws list rm doctor completion help -r" -- "$cur"))
   elif [ "$pos" -eq 2 ]; then
     case "$first" in
       ws|rm) COMPREPLY=($(compgen -W "$(_tell_sessions)" -- "$cur")) ;;
-      up) COMPREPLY=($(compgen -W "--tabs" -- "$cur")) ;;
+      up) COMPREPLY=($(compgen -W "$(_tell_sessions) --all --tabs" -- "$cur")) ;;
+      down) COMPREPLY=($(compgen -W "$(_tell_sessions) --all" -- "$cur")) ;;
       init|adopt|hub|list|doctor|completion|help|-r) ;;
       *) COMPREPLY=($(compgen -W "$(_tell_roles "$first")" -- "$cur")) ;;
     esac
@@ -501,10 +572,28 @@ EOF
   fi
 }
 
-cmd_up() { # 설정된 허브·프로젝트 세션 전부 켜기 → 허브(있으면)로 접속 / --tabs: 세션별 터미널 탭
-  local TABS=0
-  case "${1:-}" in -t|--tabs) TABS=1 ;; esac
+cmd_up() { # 켜기 — 인자 없음/--all: 전부 켜고 허브 접속 / <세션>: 하나만 백그라운드로 / --tabs: 터미널 탭
+  local TABS=0 ONLY="" a
+  for a in "$@"; do
+    case "$a" in
+      -t|--tabs) TABS=1 ;;
+      --all|-all|all) ONLY="" ;;
+      *) ONLY="$a" ;;
+    esac
+  done
   if [ ! -f "$WS_CONF" ]; then echo "설정 없음: $WS_CONF — 'tell init' 먼저"; exit 1; fi
+  if [ -n "$ONLY" ]; then # 하나만 켜기 (백그라운드 — 접속은 tell ws)
+    banner "up · '$ONLY' 켜기"
+    if tmux has-session -t "=$ONLY" 2>/dev/null; then
+      skip "$ONLY — 이미 떠 있음"
+    elif ws_boot "$ONLY"; then
+      ok "$ONLY 켜짐 (백그라운드)"
+    else
+      warn "알 수 없는 워크스페이스: $ONLY (목록: tell ws)"; exit 1
+    fi
+    if [ "$TABS" = "1" ]; then open_terminal_tab "$ONLY" && ok "열림: $ONLY"; else note "접속: tell ws $ONLY"; fi
+    exit 0
+  fi
   banner "up · 전체 켜기"
   local NAMES; NAMES=$(grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | awk -F'|' '{print $1}' | awk '!seen[$0]++')
   [ -n "$NAMES" ] || { warn "설정된 세션 없음 — 'tell init' 먼저"; exit 1; }
@@ -544,6 +633,7 @@ case "${1:-}" in
   adopt)  shift; cmd_adopt "$@";  exit $? ;;
   hub)    shift; cmd_hub "$@";    exit $? ;;
   up)     shift; cmd_up "$@";     exit $? ;;
+  down)   shift; cmd_down "$@";   exit $? ;;
   completion) shift; cmd_completion; exit $? ;;
   help|--help|-h) cmd_help;       exit 0 ;;
   "")     cmd_help;               exit 2 ;;   # 인자 없이 실행 → 도움말
