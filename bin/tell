@@ -1,0 +1,227 @@
+#!/bin/bash
+# tell — session-to-session messaging bridge for Claude Code over tmux
+#
+# 메시징:
+#   tell <세션> <역할> "<메시지>"        요청 전송 (6자리 상관키 KEY 자동 생성·출력)
+#   tell -r <KEY> <세션> <역할> "<메시지>"  응답 전송 (받은 요청의 KEY 그대로)
+# 관리:
+#   tell ws [<세션>]                     워크스페이스 부트스트랩/접속 (설정: workspaces.conf)
+#   tell init                            신규 셋업 마법사 (워크스페이스 + CLAUDE.md 규약)
+#   tell adopt                           떠 있는 tmux 세션을 브릿지에 편입 (재시작 불필요)
+#   tell doctor                          환경 점검
+#
+# 동작 원리:
+#   - 대상 = tmux "세션 이름" + "패널 제목(=역할)". 메시지는 send-keys로 상대 입력창에 직접 입력됨.
+#   - 요청 헤더: [세션 요청 - KEY from 보낸세션/보낸역할]  /  응답 헤더: [세션 응답 - KEY from ...]
+#   - 받는 쪽 Claude는 CLAUDE.md 규약(templates/ 참고)에 따라 작업 후 `tell -r KEY ...`를 실행해 응답.
+#   - 대상이 작업 중이어도 전송됨(Claude Code가 입력을 큐잉). 입력창에 미제출 텍스트가 있으면
+#     덮어쓰기 방지를 위해 10초 대기 후 재시도(최대 3회).
+#
+# ⚠️ 보안: send-keys 기반이라 같은 tmux 서버 사용자는 누구나 주입 가능. 비밀번호/토큰은 절대 tell로 보내지 말 것.
+# 종료코드: 0 전송 / 1 대상없음 / 2 인자오류
+
+set -u
+CONFIG_DIR="${TELL_CONFIG_DIR:-$HOME/.config/tell-tmux}"
+WS_CONF="$CONFIG_DIR/workspaces.conf"
+
+# ── 스크립트 실제 위치(심링크 해제) → templates/ 찾기 ──────────────────────────
+resolve_self() {
+  local src="$0"
+  while [ -L "$src" ]; do
+    local dir; dir=$(cd -P "$(dirname "$src")" && pwd)
+    src=$(readlink "$src")
+    case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+  done
+  cd -P "$(dirname "$src")" && pwd
+}
+SELF_DIR=$(resolve_self)
+TEMPLATE_DIR="$SELF_DIR/../templates"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 서브커맨드
+# ══════════════════════════════════════════════════════════════════════════════
+
+cmd_doctor() {
+  local ok=0
+  echo "── tell doctor ──"
+  if command -v tmux >/dev/null 2>&1; then echo "✅ tmux $(tmux -V | awk '{print $2}')"; else echo "❌ tmux 없음 — brew install tmux"; ok=1; fi
+  if command -v claude >/dev/null 2>&1; then echo "✅ claude $(claude --version 2>/dev/null | awk '{print $1}')"; else echo "⚠️  claude CLI 없음 — 메시징은 되지만 받는 쪽 AI가 없음"; fi
+  if [ -n "${TMUX:-}" ]; then echo "✅ tmux 세션 안에서 실행 중 (발신자 헤더 자동)"; else echo "ℹ️  tmux 밖 — 발신자(from) 헤더 없이 전송됨"; fi
+  if [ -f "$WS_CONF" ]; then echo "✅ 워크스페이스 설정: $WS_CONF ($(grep -cv '^\s*#\|^\s*$' "$WS_CONF" 2>/dev/null || echo 0)줄)"; else echo "ℹ️  워크스페이스 설정 없음 — 'tell init' 또는 'tell adopt'로 생성"; fi
+  [ -f "$TEMPLATE_DIR/CLAUDE-section-role.md" ] && echo "✅ 템플릿: $TEMPLATE_DIR" || echo "⚠️  템플릿 폴더 못 찾음: $TEMPLATE_DIR"
+  echo "ℹ️  주의: 입력창 감지는 Claude Code 프롬프트 렌더링(❯)을 읽습니다. CLI 대개편 시 점검 필요."
+  return $ok
+}
+
+append_role_template() { # $1=dir  $2=session  $3=roles(공백구분)  $4=hub_session  $5=hub_role
+  local dir="$1" session="$2" roles="$3" hub_s="$4" hub_r="$5"
+  local f="$dir/CLAUDE.md" t="$TEMPLATE_DIR/CLAUDE-section-role.md"
+  [ -f "$t" ] || { echo "  ⚠️ 템플릿 없음: $t"; return 1; }
+  if [ -f "$f" ] && grep -q '세션 요청 - KEY' "$f" 2>/dev/null; then
+    echo "  ↷ 이미 규약 있음: $f (건너뜀)"; return 0
+  fi
+  mkdir -p "$dir"
+  { [ -f "$f" ] && echo ""; sed -e "s/{{SESSION}}/$session/g" -e "s/{{ROLES}}/$roles/g" \
+        -e "s/{{HUB_SESSION}}/$hub_s/g" -e "s/{{HUB_ROLE}}/$hub_r/g" "$t"; } >> "$f"
+  echo "  ✍️  규약 추가됨: $f"
+}
+
+cmd_init() {
+  echo "── tell init — 신규 워크스페이스 셋업 ──"
+  mkdir -p "$CONFIG_DIR"
+  printf "허브(비서) 세션 이름 [hub]: "; read -r HUB; HUB=${HUB:-hub}
+  printf "허브 역할(패널 제목) [hub]: "; read -r HUBR; HUBR=${HUBR:-hub}
+  printf "허브 작업 디렉터리 [~/tell-hub]: "; read -r HUBD; HUBD=${HUBD:-$HOME/tell-hub}; HUBD=${HUBD/#\~/$HOME}
+  echo "$HUB|$HUBR|$HUBD" >> "$WS_CONF"
+  mkdir -p "$HUBD"
+  if [ -f "$TEMPLATE_DIR/CLAUDE-section-hub.md" ]; then
+    sed -e "s/{{HUB_SESSION}}/$HUB/g" -e "s/{{HUB_ROLE}}/$HUBR/g" "$TEMPLATE_DIR/CLAUDE-section-hub.md" >> "$HUBD/CLAUDE.md"
+    echo "  ✍️  허브 CLAUDE.md 생성: $HUBD/CLAUDE.md"
+  fi
+  echo ""
+  echo "프로젝트 세션을 추가합니다. (빈 세션명 입력 시 종료)"
+  while :; do
+    printf "세션 이름: "; read -r S; [ -z "$S" ] && break
+    ROLES=""
+    while :; do
+      printf "  역할(패널 제목, 빈 값=이 세션 끝): "; read -r R; [ -z "$R" ] && break
+      printf "  '%s' 디렉터리: " "$R"; read -r D; D=${D/#\~/$HOME}
+      [ -z "$D" ] && { echo "  디렉터리는 필수"; continue; }
+      echo "$S|$R|$D" >> "$WS_CONF"
+      ROLES="$ROLES $R"
+      append_role_template "$D" "$S" "$ROLES" "$HUB" "$HUBR"
+    done
+  done
+  echo ""
+  echo "✅ 설정 저장: $WS_CONF"
+  echo "다음: 'tell ws $HUB' 및 'tell ws <세션>' 으로 띄운 뒤, 허브에서 'tell <세션> <역할> \"핑퐁 테스트...\"'"
+}
+
+cmd_adopt() {
+  echo "── tell adopt — 떠 있는 tmux 세션을 브릿지에 편입 (재시작 불필요) ──"
+  command -v tmux >/dev/null 2>&1 || { echo "tmux 없음"; exit 1; }
+  tmux ls >/dev/null 2>&1 || { echo "떠 있는 tmux 세션 없음 — 'tell init'을 쓰세요"; exit 1; }
+  mkdir -p "$CONFIG_DIR"
+  printf "허브(비서)로 쓸 세션/역할 (예: hub hub) [hub hub]: "; read -r HUB HUBR _junk
+  HUB=${HUB:-hub}; HUBR=${HUBR:-hub}
+  echo ""
+  tmux list-panes -a -F '#{session_name}|#{pane_id}|#{pane_title}|#{pane_current_path}' | while IFS='|' read -r S P T D; do
+    echo "패널: $S / \"$T\"  ($D)"
+    printf "  역할 이름으로 사용? [엔터=\"%s\" 그대로 / 새이름 입력 / s=건너뜀]: " "$T"; read -r ANS </dev/tty
+    [ "$ANS" = "s" ] && { echo "  ⤼ 건너뜀"; continue; }
+    ROLE=${ANS:-$T}
+    [ "$ROLE" != "$T" ] && tmux select-pane -t "$P" -T "$ROLE"
+    echo "$S|$ROLE|$D" >> "$WS_CONF"
+    append_role_template "$D" "$S" "$ROLE" "$HUB" "$HUBR"
+    printf "  지금 이 패널의 Claude에 규약 로드+핑퐁 메시지 보낼까? [y/N]: "; read -r GO </dev/tty
+    if [ "$GO" = "y" ]; then
+      "$0" "$S" "$ROLE" "CLAUDE.md가 갱신됐어. Read로 다시 읽고 세션 협업(tell) 규약을 숙지해. 확인되면 받은 키로 tell -r 로 '퐁 정상' 한 줄만 응답해줘."
+    fi
+  done
+  echo ""
+  echo "✅ 편입 완료. 설정: $WS_CONF"
+}
+
+cmd_ws() {
+  local NAME="${1:-}"
+  if [ ! -f "$WS_CONF" ]; then echo "설정 없음: $WS_CONF — 'tell init' 먼저"; exit 1; fi
+  if [ -z "$NAME" ]; then
+    echo "── 실행 중 ──"; tmux ls 2>/dev/null || echo "(없음)"
+    echo "── 설정된 워크스페이스 ──"
+    grep -v '^\s*#\|^\s*$' "$WS_CONF" | awk -F'|' '{print $1}' | sort -u
+    exit 0
+  fi
+  if ! tmux has-session -t "=$NAME" 2>/dev/null; then
+    local first=1 p
+    grep -v '^\s*#\|^\s*$' "$WS_CONF" | LC_ALL=C awk -F'|' -v s="$NAME" '$1==s' | while IFS='|' read -r S R D; do
+      D=${D/#\~/$HOME}
+      if [ ! -d "$D" ]; then echo "⚠️ 디렉터리 없음: $D (건너뜀)"; continue; fi
+      if ! tmux has-session -t "=$NAME" 2>/dev/null; then
+        p=$(tmux new-session -d -P -F '#{pane_id}' -s "$NAME" -c "$D")
+      else
+        p=$(tmux split-window -h -P -F '#{pane_id}' -t "=$NAME" -c "$D")
+      fi
+      tmux select-pane -t "$p" -T "$R"
+      tmux send-keys -t "$p" "claude" Enter
+    done
+    tmux has-session -t "=$NAME" 2>/dev/null || { echo "알 수 없는 워크스페이스: $NAME"; exit 1; }
+    tmux select-layout -t "=$NAME" tiled 2>/dev/null
+  fi
+  if [ -n "${TMUX:-}" ]; then tmux switch-client -t "=$NAME"; else tmux attach -t "=$NAME"; fi
+}
+
+case "${1:-}" in
+  init)   shift; cmd_init "$@";   exit $? ;;
+  adopt)  shift; cmd_adopt "$@";  exit $? ;;
+  ws)     shift; cmd_ws "${1:-}"; exit $? ;;
+  doctor) shift; cmd_doctor;      exit $? ;;
+esac
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 코어: 메시지 전송
+# ══════════════════════════════════════════════════════════════════════════════
+
+REPLY=0; KEY=""
+if [ "${1:-}" = "-r" ]; then
+  REPLY=1; KEY="${2:-}"; shift 2 2>/dev/null
+  if [ -z "$KEY" ]; then echo "usage: tell -r <KEY> <세션> <역할> <메시지>"; exit 2; fi
+fi
+
+SESSION="${1:-}"; ROLE="${2:-}"; shift 2 2>/dev/null; MSG="$*"
+if [ -z "$SESSION" ] || [ -z "$ROLE" ] || [ -z "$MSG" ]; then
+  echo "usage: tell [-r <KEY>] <세션> <역할> <메시지>   |   tell init|adopt|ws|doctor"; exit 2
+fi
+
+# LC_ALL=C: macOS awk가 일부 로케일에서 비ASCII 문자열 == 비교를 깨뜨리는 버그 회피(바이트 단위 비교)
+PANE=$(tmux list-panes -t "=$SESSION" -F "#{pane_id}	#{pane_title}" 2>/dev/null \
+  | LC_ALL=C awk -F'\t' -v r="$ROLE" '$2==r{print $1; exit}')
+if [ -z "$PANE" ]; then
+  echo "[tell] 대상 패널 없음: $SESSION:$ROLE"
+  echo "       (가용) $(tmux list-panes -t "=$SESSION" -F '#{pane_title}' 2>/dev/null | paste -sd' ' -)"
+  exit 1
+fi
+
+# 발신자(세션/역할) 자동 감지 — 받는 쪽이 '어디로 tell -r 할지' 알게 하는 핵심
+SRC=""
+if [ -n "${TMUX_PANE:-}" ]; then
+  src_ses=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
+  src_role=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_title}' 2>/dev/null)
+  [ -n "$src_ses" ] && [ -n "$src_role" ] && SRC=" from ${src_ses}/${src_role}"
+fi
+
+if [ "$REPLY" = "1" ]; then
+  MSG="[세션 응답 - $KEY$SRC] $MSG"
+else
+  KEY=$(openssl rand -hex 3 2>/dev/null)
+  [ -z "$KEY" ] && KEY=$(printf '%06x' $(( ((RANDOM<<8) ^ RANDOM) & 0xffffff )))
+  MSG="[세션 요청 - $KEY$SRC] $MSG"
+fi
+
+# 입력창 미제출 텍스트(사용자 타이핑) 감지 → 덮어쓰기 방지 대기
+has_unsubmitted_input() {
+  local line
+  line=$(tmux capture-pane -t "$PANE" -p 2>/dev/null | grep -E "^❯" | tail -1 | sed -E 's/^❯[[:space:]]*//; s/[[:space:]]+$//')
+  [ -n "$line" ] && return 0
+  return 1
+}
+for i in 1 2 3; do
+  has_unsubmitted_input || break
+  echo "[tell] 입력창에 미제출 텍스트 감지 — 10초 후 재시도 ($i/3)"
+  sleep 10
+done
+
+tmux send-keys -t "$PANE" -l "$MSG"
+sleep 0.6
+tmux send-keys -t "$PANE" Enter
+sleep 0.8
+head="$(printf '%s' "$MSG" | cut -c1-14)"
+if tmux capture-pane -t "$PANE" -p 2>/dev/null | grep -qF "❯ $head"; then
+  tmux send-keys -t "$PANE" Enter
+fi
+
+if [ "$REPLY" = "1" ]; then
+  echo "[tell] 응답 전송 완료 → $SESSION:$ROLE ($PANE)  (KEY=$KEY)"
+else
+  echo "[tell] 요청 전송 완료 → $SESSION:$ROLE ($PANE)"
+  echo "[tell] 요청 KEY=$KEY  ← 이 KEY의 [세션 응답 - $KEY] 를 기다리세요"
+fi
