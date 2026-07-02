@@ -477,13 +477,27 @@ tell application "iTerm2"
 end tell
 EOF
   else
-    # Terminal.app: 탭 생성은 접근성 권한이 필요해서 권한 없이 되는 '새 창' 방식 사용
-    osascript >/dev/null <<EOF
+    # Terminal.app: 새 탭 = Cmd+T 키 입력(System Events) — '손쉬운 사용' 권한 필요. 실패 시 새 창 폴백
+    if osascript >/dev/null 2>&1 <<EOF
+tell application "Terminal" to activate
+tell application "System Events" to keystroke "t" using command down
+delay 0.3
+tell application "Terminal" to do script "$cmd" in selected tab of front window
+EOF
+    then :; else
+      if [ "${TERMTAB_WARNED:-0}" = "0" ]; then
+        TERMTAB_WARNED=1
+        warn "탭 열기 실패 → 새 창으로 엽니다. 탭을 원하면 방금 열린 설정에서 '터미널'을 허용하세요"
+        # 앱 권한 요청 UX 흉내: 손쉬운 사용 설정 화면을 바로 열어준다 (권한 부여 자체는 사용자만 가능)
+        open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" 2>/dev/null
+      fi
+      osascript >/dev/null <<EOF
 tell application "Terminal"
   activate
   do script "$cmd"
 end tell
 EOF
+    fi
   fi
 }
 
@@ -514,11 +528,11 @@ EOF
     while IFS= read -r S; do
       [ "$S" = "$TARGET" ] && continue
       tmux has-session -t "=$S" 2>/dev/null || continue
-      open_terminal_tab "$S" && ok "탭 열림: $S"
+      open_terminal_tab "$S" && ok "열림: $S"
     done <<EOF
 $NAMES
 EOF
-    open_terminal_tab "$TARGET" && { if [ "$TARGET" = "${HUB:-}" ]; then ok "탭 열림: $TARGET (허브·포커스)"; else ok "탭 열림: $TARGET (포커스)"; fi; }
+    open_terminal_tab "$TARGET" && { if [ "$TARGET" = "${HUB:-}" ]; then ok "열림: $TARGET (허브·포커스)"; else ok "열림: $TARGET (포커스)"; fi; }
     exit 0
   fi
   if [ "$TARGET" = "${HUB:-}" ]; then ok "접속: $TARGET (허브)"; else ok "접속: $TARGET"; fi
