@@ -1,4 +1,4 @@
-# tell-tmux
+# claude-tell-bridge
 
 **Session-to-session messaging bridge for Claude Code over tmux.**
 장수명 Claude Code 세션들(tmux 패널)이 상관키(KEY) 기반으로 서로 요청·응답을 주고받게 하는 초경량 브릿지.
@@ -44,7 +44,7 @@
 ## 설치
 
 ```bash
-npm install -g tell-tmux
+npm install -g claude-tell-bridge
 tell doctor        # 환경 점검 (tmux, claude CLI)
 ```
 
@@ -99,7 +99,7 @@ tell -r a1b2c3 hub hub "완료: POST /refunds 추가, 테스트 통과"
 | `tell adopt` | 떠 있는 tmux 세션 편입 |
 | `tell doctor` | 환경 점검 |
 
-설정 파일: `~/.config/tell-tmux/workspaces.conf` — `세션|역할|디렉터리` 한 줄씩.
+설정 파일: `~/.config/claude-tell-bridge/workspaces.conf` — `세션|역할|디렉터리` 한 줄씩.
 
 ## 규약 (CLAUDE.md)
 
@@ -126,7 +126,7 @@ tell -r a1b2c3 hub hub "완료: POST /refunds 추가, 테스트 통과"
 
 ## English (TL;DR)
 
-`tell-tmux` lets multiple long-lived Claude Code sessions (tmux panes) message each other with correlation keys, via `tmux send-keys` — no daemon, no MCP. `npm i -g tell-tmux`, then `tell init` (fresh) or `tell adopt` (existing sessions). Half the magic is a CLAUDE.md convention (auto-inserted) that tells each Claude to *actually run* `tell -r KEY <session> <role> "..."` to reply. Korean-first headers for now; PRs welcome.
+`claude-tell-bridge` lets multiple long-lived Claude Code sessions (tmux panes) message each other with correlation keys, via `tmux send-keys` — no daemon, no MCP. `npm i -g claude-tell-bridge`, then `tell init` (fresh) or `tell adopt` (existing sessions). Half the magic is a CLAUDE.md convention (auto-inserted) that tells each Claude to *actually run* `tell -r KEY <session> <role> "..."` to reply. Korean-first headers for now; PRs welcome.
 
 ## License
 

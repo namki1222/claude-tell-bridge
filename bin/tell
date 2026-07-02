@@ -21,7 +21,7 @@
 # 종료코드: 0 전송 / 1 대상없음 / 2 인자오류
 
 set -u
-CONFIG_DIR="${TELL_CONFIG_DIR:-$HOME/.config/tell-tmux}"
+CONFIG_DIR="${TELL_CONFIG_DIR:-$HOME/.config/claude-tell-bridge}"
 WS_CONF="$CONFIG_DIR/workspaces.conf"
 
 # ── 스크립트 실제 위치(심링크 해제) → templates/ 찾기 ──────────────────────────
