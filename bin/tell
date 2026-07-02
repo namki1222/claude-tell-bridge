@@ -75,8 +75,7 @@ cmd_doctor() {
   if command -v claude >/dev/null 2>&1; then echo "✅ claude $(claude --version 2>/dev/null | awk '{print $1}')"; else echo "⚠️  claude CLI 없음 — 메시징은 되지만 받는 쪽 AI가 없음"; fi
   if [ -n "${TMUX:-}" ]; then echo "✅ tmux 세션 안에서 실행 중 (발신자 헤더 자동)"; else echo "ℹ️  tmux 밖 — 발신자(from) 헤더 없이 전송됨"; fi
   if [ -f "$WS_CONF" ]; then echo "✅ 워크스페이스 설정: $WS_CONF ($(grep -cvE '^[[:space:]]*(#|$)' "$WS_CONF" 2>/dev/null || echo 0)줄)"; else echo "ℹ️  워크스페이스 설정 없음 — 'tell init' 또는 'tell adopt'로 생성"; fi
-  [ -f "$TEMPLATE_DIR/CLAUDE-section-role.md" ] && echo "✅ 템플릿: $TEMPLATE_DIR" || echo "⚠️  템플릿 폴더 못 찾음: $TEMPLATE_DIR"
-  echo "ℹ️  주의: 입력창 감지는 Claude Code 프롬프트 렌더링(❯)을 읽습니다. CLI 대개편 시 점검 필요."
+  [ -f "$TEMPLATE_DIR/CLAUDE-section-role.md" ] && echo "✅ 패키지 리소스 정상" || echo "⚠️  패키지 손상 — 'npm i -g claude-tell-bridge' 재설치 필요"
   return $ok
 }
 
@@ -102,9 +101,8 @@ make_hub() { # 허브 세션 등록 + 허브 CLAUDE.md 생성. 성공 시 HUB/HU
   echo "$HUB|$HUBR|$HUBD" >> "$WS_CONF"; mkdir -p "$HUBD"
   if [ -f "$TEMPLATE_DIR/CLAUDE-section-hub.md" ] && ! grep -q '허브(비서)' "$HUBD/CLAUDE.md" 2>/dev/null; then
     { [ -f "$HUBD/CLAUDE.md" ] && echo ""; sed -e "s/{{HUB_SESSION}}/$HUB/g" -e "s/{{HUB_ROLE}}/$HUBR/g" "$TEMPLATE_DIR/CLAUDE-section-hub.md"; } >> "$HUBD/CLAUDE.md"
-    ok "허브 CLAUDE.md 생성: $HUBD/CLAUDE.md"
   fi
-  ok "허브 등록: $HUB:$HUBR → $HUBD"
+  ok "허브 구성 완료 — ${C_B}$HUB · $HUBR${C_X}"
 }
 
 cmd_init() {
@@ -180,7 +178,7 @@ cmd_adopt() {
     ok "패널 편입 완료 — ${C_B}$S · $ROLE${C_X}"
     ask "  이 패널과 바로 연결 테스트(핑퐁)할까요? [y/N]: "; read -r GO </dev/tty
     if [ "$GO" = "y" ]; then
-      "$0" "$S" "$ROLE" "프로젝트 설정이 갱신됐어. CLAUDE.md를 Read로 다시 읽고 세션 협업(tell) 규칙을 숙지해. 확인되면 받은 키로 tell -r 로 '퐁 정상' 한 줄만 응답해줘."
+      "$0" "$S" "$ROLE" "연결 확인. CLAUDE.md를 Read로 다시 읽은 뒤, 받은 키로 tell -r 로 '퐁 정상' 한 줄만 응답해줘."
     fi
     note "────────────────────────────────────────"
   done
