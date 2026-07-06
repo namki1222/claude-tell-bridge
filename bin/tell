@@ -309,7 +309,9 @@ cmd_init() {
   local NROLE=0
   while :; do
     echo ""
-    ask "  add a role to '$S' (empty = done): "; read -r R; [ -z "$R" ] && break
+    if [ "$NROLE" -eq 0 ]; then ask "  add a role to '$S' — e.g. server / web / app (empty = done): "
+    else ask "  add another role (empty = done): "; fi
+    read -r R; [ -z "$R" ] && break
     case "$R" in *" "*) warn "no spaces in a role name — use - or _"; continue ;; esac
     if [ -f "$WS_CONF" ] && LC_ALL=C awk -F'|' -v s="$S" -v r="$R" '$1==s && $2==r{f=1} END{exit !f}' "$WS_CONF"; then
       warn "role '$R' already exists in '$S' — pick another"; continue
