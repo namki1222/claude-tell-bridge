@@ -3,6 +3,15 @@
 All notable changes to this project are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/); this project follows [SemVer](https://semver.org/).
 
+## [1.2.0] - 2026-07-06
+
+### Added
+- **Arrow-key selection everywhere.** Every interactive choice — `init` (default model, hub yes/no, create-directory, per-role model, "start now?"), `adopt` (connection test), and `rm` / `down` (pick the target session + confirmations) — is now an ↑↓ picker on a terminal. Non-TTY runs (agents, scripts, pipes) keep the old static prompts with safe defaults, so nothing automated breaks.
+- **Session-scoped teardown.** Closing any pane (quitting its agent) now stops the whole project session, instead of leaving a half-running team. Implemented with per-session tmux hooks (`pane-exited` / `pane-died` + `remain-on-exit`) set only on loomo-created sessions — your global tmux config is never touched.
+
+### Changed
+- Cleaner `init` role prompt: the `server / web / app` example moved to a one-line note above, so the prompt itself stays short.
+
 ## [1.1.0] - 2026-07-06
 
 ### Changed

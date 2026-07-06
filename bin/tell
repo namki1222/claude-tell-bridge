@@ -600,11 +600,17 @@ ws_boot() { # $1=세션 — 설정대로 부트스트랩(패널 분할·제목·
       p=$(tmux split-window -h -P -F '#{pane_id}' -t "$p" -c "$D" </dev/null)
     fi
     tmux select-pane -t "$p" -T "$R" </dev/null
+    tmux set-option -p -t "$p" remain-on-exit on </dev/null 2>/dev/null   # 구버전 tmux(pane-died) 캐스케이드용 — 패널 프로세스 죽어도 남겨두면 pane-died 훅이 세션을 kill
     # 4번째=대화 세션ID(이어받기) · 5번째=에이전트(패널별 claude/codex). exec로 셸 대체(종료 시 패널 정리)
     tmux send-keys -t "$p" "$(agent_launch "${AG:-$TELL_AGENT}" "${RID:-}")" Enter </dev/null
   done
   tmux has-session -t "=$NAME" 2>/dev/null || return 1
   tmux select-layout -t "=$NAME" tiled 2>/dev/null
+  # 패널 하나라도 닫히면(에이전트 종료/Ctrl-C 등) 세션(프로젝트) 통째로 종료 — 개별 패널만 닫는 걸 막음.
+  # loomo가 만든 이 세션에만 걸리는 훅이라 tmux 전역 설정은 안 건드림. (remain-on-exit는 위 루프에서 패널별로 설정)
+  # pane-exited: 신버전 tmux(≥3.2) / pane-died: 구버전(remain-on-exit와 짝). 없는 훅 이름은 조용히 무시됨.
+  tmux set-hook -t "$NAME" pane-exited "kill-session -t '=$NAME'" 2>/dev/null
+  tmux set-hook -t "$NAME" pane-died   "kill-session -t '=$NAME'" 2>/dev/null
   return 0
 }
 
