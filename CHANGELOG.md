@@ -3,6 +3,21 @@
 All notable changes to this project are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/); this project follows [SemVer](https://semver.org/).
 
+## [1.0.0] - 2026-07-06 — loomo
+
+The project is now **loomo**, published under a new npm name.
+
+### Changed
+- **Rebranded to loomo.** The command is `loomo` (with `tell` kept as an alias, so existing setups keep working). Banner, help, and package name all say loomo.
+
+### Added
+- **Codex support.** loomo now drives both Claude Code and Codex sessions — and they message each other across models (a Claude hub can command a Codex project, and vice versa). Pick the model per session in `loomo init`, or via the 5th field of `workspaces.conf`.
+- `loomo layout <preset>` — rearrange panes without editing `tmux.conf`.
+- Panes clean up on exit (via `exec`); `loomo up` lists what's registered instead of starting everything (use `--all` to start all).
+
+### Docs
+- README rewritten, slimmed, and split into English / Korean / Chinese.
+
 ## [0.6.0] - 2026-07-06
 
 ### Added

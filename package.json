@@ -40,7 +40,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/namki1222/claude-tell-bridge.git"
+    "url": "git+https://github.com/namki1222/loomo.git"
   },
   "scripts": {
     "test": "bash -n bin/tell && echo syntax-ok"

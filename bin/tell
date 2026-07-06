@@ -145,7 +145,7 @@ cmd_help() {
   echo "  ${C_D}\$${C_X} tell -r a1b2c3 demo server \"반영 완료: 페이지네이션 파라미터 적용\""
   echo ""
   echo "  ${C_D}처음이라면: tell init → tell up → 패널 Claude에게 \"web한테 핑퐁 테스트 보내봐\"${C_X}"
-  echo "  ${C_D}문서: https://github.com/namki1222/claude-tell-bridge${C_X}"
+  echo "  ${C_D}문서: https://github.com/namki1222/loomo${C_X}"
 }
 
 cmd_doctor() {
