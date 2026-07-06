@@ -6,7 +6,7 @@
 #   tell -r <KEY> <세션> <역할> "<메시지>"  응답 전송 (받은 요청의 KEY 그대로)
 # 관리:
 #   tell ws [<세션>]                     워크스페이스 부트스트랩/접속 (설정: workspaces.conf)
-#   tell up [<세션>|--all] [--tabs]      켜기 — 전체(허브 접속) 또는 하나만 (--tabs: 세션별 터미널 탭)
+#   tell up <세션> | --all [--tabs]      켜기 — 하나만 / 전체(허브 접속) · 인자 없으면 무엇을 켤지 안내
 #   tell down <세션>|--all               끄기 — 세션 종료만, 설정은 유지
 #   tell layout [<세션>] <프리셋>          패널 배치 변경 — tiled/main-vertical 등 (tmux.conf 불필요)
 #   tell init                            셋업 마법사 — 허브(선택) → 프로젝트/역할/디렉터리
@@ -130,7 +130,7 @@ cmd_help() {
   row "hub"        "총괄 관리(허브=비서) 세션 등록 — 시스템 전체에 하나만"
   echo ""
   echo "${C_Y}${C_B}운영${C_X}"
-  row "up"         "켜기 — tell up(전체→허브 접속) / up <세션>(하나만) / --tabs(터미널 탭)"
+  row "up"         "켜기 — up <세션>(하나) / up --all(전체→허브 접속, +--tabs 탭) / up(목록 안내)"
   row "down"       "끄기 — tell down <세션> / down --all (설정은 유지)"
   row "layout"     "패널 배치 — tell layout [<세션>] <프리셋> (tiled/main-vertical 등, tmux.conf 불필요)"
   row "ws"         "세션 하나 띄우기/접속 — tell ws <세션> (인자 없으면 목록)"
@@ -297,7 +297,7 @@ cmd_init() {
   ok "저장: $WS_CONF"
   echo ""
   echo "${C_B}다음 단계:${C_X}"
-  echo "  ${C_C}tell up${C_X}                # 허브·프로젝트 전부 켜기 (허브로 접속)"
+  echo "  ${C_C}tell up --all${C_X}          # 허브·프로젝트 전부 켜기 (허브로 접속)"
   echo "  ${C_C}tell ws <프로젝트>${C_X}      # 하나만 띄우기 (패널 분할 + claude 자동 실행)"
   echo "  ${C_C}tell list${C_X}              # 말 걸 수 있는 주소 확인"
 }
@@ -662,16 +662,28 @@ EOF
   fi
 }
 
-cmd_up() { # 켜기 — 인자 없음/--all: 전부 켜고 허브 접속 / <세션>: 하나만 백그라운드로 / --tabs: 터미널 탭
-  local TABS=0 ONLY="" a
+cmd_up() { # 켜기 — <세션>: 하나만 / --all: 전부 켜고 허브 접속 / 인자 없음: 무엇을 켤지 안내 (실수로 전체 켜짐 방지)
+  local TABS=0 ONLY="" ALL=0 a
   for a in "$@"; do
     case "$a" in
       -t|--tabs) TABS=1 ;;
-      --all|-all|all) ONLY="" ;;
+      --all|-all|all) ALL=1 ;;
       *) ONLY="$a" ;;
     esac
   done
   if [ ! -f "$WS_CONF" ]; then echo "설정 없음: $WS_CONF — 'tell init' 먼저"; exit 1; fi
+  if [ -z "$ONLY" ] && [ "$ALL" = "0" ]; then # 인자 없음 → 켜지 말고 무엇을 켤지 안내
+    banner "up · 무엇을 켤까"
+    step "설정된 프로젝트"
+    grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | awk -F'|' '{print $1}' | awk '!seen[$0]++' | while IFS= read -r s; do
+      [ -n "$s" ] || continue
+      if tmux has-session -t "=$s" 2>/dev/null; then echo "  ${C_G}● $s${C_X} ${C_D}(떠 있음)${C_X}"; else echo "  ${C_D}○ $s${C_X}"; fi
+    done
+    echo ""
+    note "하나만 켜기:  ${C_C}${BRAND} up <프로젝트>${C_X}"
+    note "전체 켜기:    ${C_C}${BRAND} up --all${C_X}   ${C_D}(+ --tabs 로 세션별 터미널 탭)${C_X}"
+    exit 0
+  fi
   if [ -n "$ONLY" ]; then # 하나만 켜기 (백그라운드 — 접속은 tell ws)
     banner "up · '$ONLY' 켜기"
     if tmux has-session -t "=$ONLY" 2>/dev/null; then
