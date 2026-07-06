@@ -8,7 +8,7 @@
 
 <br>
 
-[![npm](https://img.shields.io/npm/v/loomo?style=flat-square)](https://www.npmjs.com/package/loomo)
+[![npm](https://img.shields.io/npm/v/@namki1222/loomo?style=flat-square)](https://www.npmjs.com/package/@namki1222/loomo)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-555?style=flat-square)](#환경-요구사항)
 
@@ -85,7 +85,7 @@
 <br>
 
 ```bash
-npm install -g loomo
+npm install -g @namki1222/loomo
 
 loomo doctor        # 환경 점검
 ```

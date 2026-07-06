@@ -1,5 +1,5 @@
 {
-  "name": "loomo",
+  "name": "@namki1222/loomo",
   "version": "1.0.0",
   "description": "Weave your Claude Code & Codex sessions into a team that talks to each other — multi-agent messaging over tmux, no daemon, no MCP.",
   "bin": {

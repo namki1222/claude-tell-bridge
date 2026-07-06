@@ -29,7 +29,15 @@
 # 종료코드: 0 전송 / 1 대상없음 / 2 인자오류
 
 set -u
-CONFIG_DIR="${TELL_CONFIG_DIR:-$HOME/.config/claude-tell-bridge}"
+# 설정 경로: TELL_CONFIG_DIR 우선 · 기본은 ~/.config/loomo · 단 기존 claude-tell-bridge만 있으면 그걸 씀(하위호환)
+CONFIG_DIR="${TELL_CONFIG_DIR:-}"
+if [ -z "$CONFIG_DIR" ]; then
+  if [ -d "$HOME/.config/claude-tell-bridge" ] && [ ! -d "$HOME/.config/loomo" ]; then
+    CONFIG_DIR="$HOME/.config/claude-tell-bridge"
+  else
+    CONFIG_DIR="$HOME/.config/loomo"
+  fi
+fi
 WS_CONF="$CONFIG_DIR/workspaces.conf"
 HUB_FILE="$CONFIG_DIR/hub"   # 허브 포인터 '세션|역할' — 허브는 시스템 전체에 하나만
 
