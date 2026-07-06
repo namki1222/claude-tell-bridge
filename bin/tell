@@ -287,36 +287,44 @@ cmd_init() {
       skip "skipped (add later: loomo hub)"
     fi
   fi
-  step "[2/2] Register projects"
-  note "one project (session) can hold several roles (panes), e.g. server · web · app"
+  step "[2/2] Your project"
+  note "A ${C_B}project${C_D} is one workspace = one tmux session (e.g. 'myapp')."
+  note "Inside it you add ${C_B}roles${C_D} — one AI per role (server / web / app...)."
+  note "(To add more projects, run 'loomo init' again later.)"
+  echo ""
+  ask "project name: "; read -r S
+  [ -z "$S" ] && { warn "project name is required"; exit 2; }
+  local NROLE=0
   while :; do
     echo ""
-    ask "project name = session name (empty = done): "; read -r S; [ -z "$S" ] && break
-    while :; do
-      echo ""
-      note "· pane = one resident AI for this project (e.g. server / web / app)"
-      ask "  role (pane) name to add (empty = project done): "; read -r R; [ -z "$R" ] && break
-      ask "  directory for '$R': "; read -e -r D; D=$(abspath "$D")
-      [ -z "$D" ] && { warn "directory is required"; continue; }
-      ask "  model for '$R' [Enter=$DEFAG · claude · codex]: "; read -r AG
-      case "$AG" in codex) AG=codex ;; claude) AG=claude ;; *) AG="$DEFAG" ;; esac
-      load_agent_profile "$AG"   # convention file (CLAUDE.md/AGENTS.md) & session lookup follow this model
-      ask_resume_id "$D"
-      echo "$S|$R|$D|$RID|$AG" >> "$WS_CONF"
-      append_role_template "$D" "$S" "$R" "$HUB" "$HUBR"
-      ok "pane added — ${C_B}$S · $R${C_X} ${C_D}($AG)${C_X}"
-      note "type the next role name to keep adding · Enter (empty) or Ctrl+C to stop"
-      note "────────────────────────────────────────"
-    done
-    ok "project '$S' configured"
+    ask "  add a role to '$S' (empty = done): "; read -r R; [ -z "$R" ] && break
+    ask "  directory for '$R': "; read -e -r D; D=$(abspath "$D")
+    [ -z "$D" ] && { warn "directory is required"; continue; }
+    if [ ! -d "$D" ]; then                       # 오타/미존재 방지 — 없으면 만들지 물어봄
+      warn "no such directory: $D"
+      ask "  create it? [Y/n]: "; read -r CR
+      case "$CR" in n|N) skip "not created — make it before you start" ;; *) mkdir -p "$D" && ok "created: $D" ;; esac
+    fi
+    ask "  model for '$R' [Enter=$DEFAG · claude · codex]: "; read -r AG
+    case "$AG" in codex) AG=codex ;; claude) AG=claude ;; *) AG="$DEFAG" ;; esac
+    load_agent_profile "$AG"   # convention file (CLAUDE.md/AGENTS.md) & session lookup follow this model
+    ask_resume_id "$D"
+    echo "$S|$R|$D|$RID|$AG" >> "$WS_CONF"
+    append_role_template "$D" "$S" "$R" "$HUB" "$HUBR"
+    ok "  + role '$R' ${C_D}($AG)${C_X}"
+    NROLE=$((NROLE + 1))
   done
+  [ "$NROLE" -eq 0 ] && { warn "no roles added — nothing to start (run 'loomo init' again)"; exit 0; }
   banner "done"
-  ok "saved: $WS_CONF"
+  ok "project '${C_B}$S${C_X}${C_G}' configured — $NROLE role(s), saved to $WS_CONF"
   echo ""
-  echo "${C_B}next steps:${C_X}"
-  echo "  ${C_C}loomo up --all${C_X}         # start hub + all projects (attaches to the hub)"
-  echo "  ${C_C}loomo ws <project>${C_X}     # start just one (split panes + launch the AI)"
-  echo "  ${C_C}loomo list${C_X}             # see who you can talk to"
+  if [ -t 0 ] && [ -t 1 ]; then          # 사람 터미널 → 방금 만든 이 프로젝트만 켤지 물어봄
+    ask "Start '$S' now? [Y/n]: "; read -r GO
+    case "$GO" in n|N) note "start later: ${C_C}loomo up $S${C_X}" ;; *) cmd_up "$S"; return $? ;; esac
+  else
+    echo "  ${C_C}loomo up $S${C_X}    # start this project"
+    echo "  ${C_C}loomo list${C_X}     # who you can talk to"
+  fi
 }
 
 cmd_adopt() {
@@ -683,7 +691,47 @@ EOF
   fi
 }
 
-cmd_up() { # 켜기 — <세션>: 하나만 / --all: 전부 켜고 허브 접속 / 인자 없음: 무엇을 켤지 안내 (실수로 전체 켜짐 방지)
+pick_project() { # stdin=프로젝트 목록 → PICKED / PICK_ACT(enter|all|quit) 설정. TTY 전용 인터랙티브 피커
+  PICKED=""; PICK_ACT="quit"
+  local items marks line n sel=0 i j key rest
+  items=(); marks=()
+  while IFS= read -r line; do [ -n "$line" ] && items[${#items[@]}]="$line"; done
+  n=${#items[@]}; [ "$n" -eq 0 ] && return 1
+  for ((i=0;i<n;i++)); do
+    if tmux has-session -t "=${items[$i]}" 2>/dev/null; then marks[$i]="●"; else marks[$i]="○"; fi
+  done
+  printf '\033[?25l'                              # 커서 숨김
+  trap 'printf "\033[?25h\n"; exit 130' INT       # Ctrl-C 시 커서 복구
+  _draw() {
+    for ((j=0;j<n;j++)); do
+      printf '\033[2K'
+      if [ "$j" -eq "$sel" ]; then printf '  %b❯ %s %s%b\n' "${C_C}${C_B}" "${marks[$j]}" "${items[$j]}" "${C_X}"
+      else printf '    %s %s\n' "${marks[$j]}" "${items[$j]}"; fi
+    done
+  }
+  _draw
+  while :; do
+    IFS= read -rsn1 key </dev/tty || { PICK_ACT="quit"; break; }
+    if [ "$key" = $'\x1b' ]; then
+      IFS= read -rsn2 -t 1 rest </dev/tty || rest=""
+      case "$rest" in '[A') key="UP" ;; '[B') key="DOWN" ;; *) key="ESC" ;; esac
+    fi
+    case "$key" in
+      UP|k)    sel=$(( (sel - 1 + n) % n )) ;;
+      DOWN|j)  sel=$(( (sel + 1) % n )) ;;
+      "")      PICK_ACT="enter"; PICKED="${items[$sel]}"; break ;;   # Enter
+      a|A)     PICK_ACT="all"; break ;;
+      q|Q|ESC) PICK_ACT="quit"; break ;;
+    esac
+    printf '\033[%dA' "$n"
+    _draw
+  done
+  printf '\033[?25h'
+  trap - INT
+  return 0
+}
+
+cmd_up() { # 켜기 — <세션>: 켜고 접속 / --all: 전부 켜고 허브 접속 / 인자 없음: 피커(TTY) 또는 목록(비TTY)
   local TABS=0 ONLY="" ALL=0 a
   for a in "$@"; do
     case "$a" in
@@ -693,28 +741,49 @@ cmd_up() { # 켜기 — <세션>: 하나만 / --all: 전부 켜고 허브 접속
     esac
   done
   if [ ! -f "$WS_CONF" ]; then echo "no config: $WS_CONF — run 'loomo init' first"; exit 1; fi
-  if [ -z "$ONLY" ] && [ "$ALL" = "0" ]; then # 인자 없음 → 켜지 말고 무엇을 켤지 안내
+  if [ -z "$ONLY" ] && [ "$ALL" = "0" ]; then # 인자 없음
+    local PICKLIST; PICKLIST=$(grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | awk -F'|' '{print $1}' | awk '!seen[$0]++')
+    [ -n "$PICKLIST" ] || { warn "nothing registered — run 'loomo init' first"; exit 1; }
     banner "up · what to start"
-    step "registered projects"
-    grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | awk -F'|' '{print $1}' | awk '!seen[$0]++' | while IFS= read -r s; do
-      [ -n "$s" ] || continue
-      if tmux has-session -t "=$s" 2>/dev/null; then echo "  ${C_G}● $s${C_X} ${C_D}(running)${C_X}"; else echo "  ${C_D}○ $s${C_X}"; fi
-    done
-    echo ""
-    note "start one:  ${C_C}${BRAND} up <project>${C_X}"
-    note "start all:  ${C_C}${BRAND} up --all${C_X}   ${C_D}(+ --tabs for a terminal tab per session)${C_X}"
-    exit 0
+    if [ -t 0 ] && [ -t 1 ]; then # 사람 터미널 → 화살표 피커
+      echo ""
+      note "↑↓ move · Enter start & attach · a start all · q quit"
+      echo ""
+      pick_project <<EOF
+$PICKLIST
+EOF
+      case "$PICK_ACT" in
+        enter) ONLY="$PICKED" ;;   # 아래 단일 켜기+접속으로 진행
+        all)   ALL=1 ;;            # 아래 전체 켜기로 진행
+        *)     exit 0 ;;
+      esac
+    else # 비TTY(에이전트/스크립트) → 파싱 가능한 정적 목록 유지
+      step "registered projects"
+      printf '%s\n' "$PICKLIST" | while IFS= read -r s; do
+        [ -n "$s" ] || continue
+        if tmux has-session -t "=$s" 2>/dev/null; then echo "  ${C_G}● $s${C_X} ${C_D}(running)${C_X}"; else echo "  ${C_D}○ $s${C_X}"; fi
+      done
+      echo ""
+      note "start one:  ${C_C}${BRAND} up <project>${C_X}"
+      note "start all:  ${C_C}${BRAND} up --all${C_X}   ${C_D}(+ --tabs for a terminal tab per session)${C_X}"
+      exit 0
+    fi
   fi
-  if [ -n "$ONLY" ]; then # 하나만 켜기 (백그라운드 — 접속은 tell ws)
+  if [ -n "$ONLY" ]; then # 하나 켜기 → TTY면 접속까지
     banner "up · start '$ONLY'"
     if tmux has-session -t "=$ONLY" 2>/dev/null; then
       skip "$ONLY — already running"
     elif ws_boot "$ONLY"; then
-      ok "$ONLY started (background)"
+      ok "$ONLY started"
     else
       warn "unknown workspace: $ONLY (list: loomo ws)"; exit 1
     fi
-    if [ "$TABS" = "1" ]; then open_terminal_tab "$ONLY" && ok "opened: $ONLY"; else note "attach: loomo ws $ONLY"; fi
+    if [ "$TABS" = "1" ]; then open_terminal_tab "$ONLY" && ok "opened: $ONLY"; exit 0; fi
+    if [ -t 0 ] && [ -t 1 ]; then # 사람 → 바로 접속
+      if [ -n "${TMUX:-}" ]; then tmux switch-client -t "=$ONLY"; else tmux attach -t "=$ONLY"; fi
+    else
+      note "attach: loomo ws $ONLY"   # 에이전트/스크립트는 attach 불가 — 안내만
+    fi
     exit 0
   fi
   banner "up · start all"
