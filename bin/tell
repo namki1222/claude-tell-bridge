@@ -8,6 +8,7 @@
 #   tell ws [<세션>]                     워크스페이스 부트스트랩/접속 (설정: workspaces.conf)
 #   tell up [<세션>|--all] [--tabs]      켜기 — 전체(허브 접속) 또는 하나만 (--tabs: 세션별 터미널 탭)
 #   tell down <세션>|--all               끄기 — 세션 종료만, 설정은 유지
+#   tell layout [<세션>] <프리셋>          패널 배치 변경 — tiled/main-vertical 등 (tmux.conf 불필요)
 #   tell init                            셋업 마법사 — 허브(선택) → 프로젝트/역할/디렉터리
 #   tell adopt                           쓰던 Claude 가져오기 — 떠 있는 패널 편입 + 기존 대화(세션ID) 이어받기
 #   tell hub                             총괄 관리(허브) 세션 등록 (허브는 시스템 전체에 하나만)
@@ -96,6 +97,7 @@ cmd_help() {
   echo "${C_Y}${C_B}운영${C_X}"
   row "up"         "켜기 — tell up(전체→허브 접속) / up <세션>(하나만) / --tabs(터미널 탭)"
   row "down"       "끄기 — tell down <세션> / down --all (설정은 유지)"
+  row "layout"     "패널 배치 — tell layout [<세션>] <프리셋> (tiled/main-vertical 등, tmux.conf 불필요)"
   row "ws"         "세션 하나 띄우기/접속 — tell ws <세션> (인자 없으면 목록)"
   row "list"       "주소록 — 지금 말 걸 수 있는 세션:역할 + 연결·실행 상태"
   row "rm"         "워크스페이스 삭제 — 종료+설정+규약 블록 제거 (프로젝트 파일 무손상)"
@@ -467,11 +469,34 @@ ws_boot() { # $1=세션 — 설정대로 부트스트랩(패널 분할·제목·
     fi
     tmux select-pane -t "$p" -T "$R" </dev/null
     # 4번째 필드 = Claude 대화 세션ID → 새 대화 대신 그 대화를 이어받아 실행
-    tmux send-keys -t "$p" "claude${RID:+ --resume $RID}" Enter </dev/null
+    # exec: claude가 셸을 대체해 패널 주 프로세스가 됨 → claude 종료 시 셸이 남지 않고 패널 자동 정리
+    tmux send-keys -t "$p" "exec claude${RID:+ --resume $RID}" Enter </dev/null
   done
   tmux has-session -t "=$NAME" 2>/dev/null || return 1
   tmux select-layout -t "=$NAME" tiled 2>/dev/null
   return 0
+}
+
+LAYOUT_PRESETS="tiled main-vertical main-horizontal even-horizontal even-vertical"
+cmd_layout() { # 패널 배치 변경 — tmux.conf 편집 없이 프리셋으로. tell layout [<세션>] <프리셋>
+  local a1="${1:-}" a2="${2:-}" NAME PRESET
+  if [ -z "$a1" ]; then
+    banner "layout · 패널 배치"
+    echo "usage: ${C_B}tell layout [<세션>] <프리셋>${C_X}"
+    note "프리셋: $LAYOUT_PRESETS"
+    note "세션 생략 시 현재 세션(패널 안에서 실행할 때)"
+    exit 2
+  fi
+  if [ -n "$a2" ]; then NAME="$a1"; PRESET="$a2"
+  else
+    PRESET="$a1"   # 세션 생략 → 현재 세션 자동 감지
+    [ -n "${TMUX_PANE:-}" ] && NAME=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
+    [ -z "${NAME:-}" ] && { warn "세션을 지정하세요: tell layout <세션> <프리셋>"; exit 2; }
+  fi
+  case " $LAYOUT_PRESETS " in *" $PRESET "*) ;; *) warn "알 수 없는 프리셋: $PRESET"; note "가능: $LAYOUT_PRESETS"; exit 2 ;; esac
+  tmux has-session -t "=$NAME" 2>/dev/null || { warn "실행 중 세션 아님: $NAME"; exit 1; }
+  # select-layout -t는 target-window라 '=세션:'처럼 콜론으로 윈도우를 명시해야 함('=세션'만 주면 pane으로 오해)
+  tmux select-layout -t "=$NAME:" "$PRESET" >/dev/null 2>&1 && ok "$NAME → ${C_B}$PRESET${C_X}" || { warn "레이아웃 적용 실패"; exit 1; }
 }
 
 cmd_completion() { # 셸 자동완성 스크립트 출력 — .zshrc/.bashrc에: eval "$(tell completion)"
@@ -500,16 +525,20 @@ _tell() {
   [ "${COMP_WORDS[1]:-}" = "-r" ] && idx=3   # -r <KEY> 만큼 위치가 밀림
   local pos=$((COMP_CWORD - idx + 1)) first="${COMP_WORDS[$idx]:-}"
   COMPREPLY=()
+  local LAYOUTS="tiled main-vertical main-horizontal even-horizontal even-vertical"
   if [ "$pos" -eq 1 ]; then
-    COMPREPLY=($(compgen -W "$(_tell_sessions) init adopt hub up down ws list rm doctor completion help -r" -- "$cur"))
+    COMPREPLY=($(compgen -W "$(_tell_sessions) init adopt hub up down layout ws list rm doctor completion help -r" -- "$cur"))
   elif [ "$pos" -eq 2 ]; then
     case "$first" in
       ws|rm) COMPREPLY=($(compgen -W "$(_tell_sessions)" -- "$cur")) ;;
       up) COMPREPLY=($(compgen -W "$(_tell_sessions) --all --tabs" -- "$cur")) ;;
       down) COMPREPLY=($(compgen -W "$(_tell_sessions) --all" -- "$cur")) ;;
+      layout) COMPREPLY=($(compgen -W "$(_tell_sessions) $LAYOUTS" -- "$cur")) ;;
       init|adopt|hub|list|doctor|completion|help|-r) ;;
       *) COMPREPLY=($(compgen -W "$(_tell_roles "$first")" -- "$cur")) ;;
     esac
+  elif [ "$pos" -eq 3 ] && [ "$first" = "layout" ]; then
+    COMPREPLY=($(compgen -W "$LAYOUTS" -- "$cur"))
   fi
 }
 complete -F _tell tell
@@ -635,6 +664,7 @@ case "${1:-}" in
   hub)    shift; cmd_hub "$@";    exit $? ;;
   up)     shift; cmd_up "$@";     exit $? ;;
   down)   shift; cmd_down "$@";   exit $? ;;
+  layout) shift; cmd_layout "$@"; exit $? ;;
   completion) shift; cmd_completion; exit $? ;;
   help|--help|-h) cmd_help;       exit 0 ;;
   "")     cmd_help;               exit 2 ;;   # 인자 없이 실행 → 도움말

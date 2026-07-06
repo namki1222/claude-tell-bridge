@@ -202,6 +202,7 @@ Everything you run is a **management command** — a handful of them. The two me
 | `tell up <session>` | start just that session (in the background — attach with `tell ws`) |
 | `tell up --tabs` | start all, but open **a terminal tab per session** instead of one attached window (macOS; hub last = focused). iTerm2 = tabs / Terminal.app = tabs (needs Accessibility permission — falls back to new windows with a hint) |
 | `tell down <session>` \| `--all` | **stop** — kill the session only, config kept (restore with `tell up`). `--all` only touches registered sessions |
+| `tell layout [<session>] <preset>` | rearrange panes — `tiled` / `main-vertical` / `main-horizontal` / `even-horizontal` / `even-vertical`. No `tmux.conf` editing |
 | `tell ws` | list running sessions + registered workspaces |
 | `tell ws <session>` | bootstrap the workspace (split panes, titles, launch claude; `--resume` if a session ID is set) and attach |
 | `tell init` | setup wizard — register hub (optional) + projects/roles/directories + insert the CLAUDE.md convention |
