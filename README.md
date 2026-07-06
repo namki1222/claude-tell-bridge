@@ -90,6 +90,8 @@ npm install -g @namki1222/loomo
 loomo doctor        # environment check
 ```
 
+<sub>Upgrading from a Korean-header setup (pre-1.1)? `export LOOMO_LANG=ko` keeps your existing protocol headers.</sub>
+
 <br>
 
 ---

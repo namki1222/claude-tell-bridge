@@ -90,6 +90,8 @@ npm install -g @namki1222/loomo
 loomo doctor        # 환경 점검
 ```
 
+<sub>1.1 이전의 한국어 헤더 세팅을 쓰고 있다면 `export LOOMO_LANG=ko` 한 줄로 기존 프로토콜이 그대로 유지됩니다.</sub>
+
 <br>
 
 ---

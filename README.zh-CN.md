@@ -90,6 +90,8 @@ npm install -g @namki1222/loomo
 loomo doctor        # 环境检查
 ```
 
+<sub>从 1.1 之前的韩语协议头升级？`export LOOMO_LANG=ko` 可保持原有协议头不变。</sub>
+
 <br>
 
 ---

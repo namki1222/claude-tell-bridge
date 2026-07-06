@@ -3,6 +3,15 @@
 All notable changes to this project are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/); this project follows [SemVer](https://semver.org/).
 
+## [1.1.0] - 2026-07-06
+
+### Changed
+- **Full English CLI.** All output, wizards, and docs strings are English. Protocol headers default to English: `[session request - KEY from ...]` / `[session reply - KEY ...]`.
+
+### Added
+- `LOOMO_LANG=ko` keeps the original Korean protocol headers & convention templates (auto-enabled when `$LANG` is `ko*`) — existing Korean setups keep working untouched.
+- English convention templates (role + hub). `init`/`adopt` insert the template matching your language; convention detection accepts both.
+
 ## [1.0.0] - 2026-07-06 — loomo
 
 The project is now **loomo**, published under a new npm name.

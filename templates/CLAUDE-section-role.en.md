@@ -1,0 +1,21 @@
+<!-- claude-tell-bridge: session collaboration convention (auto-inserted) -->
+## loomo — session-to-session collaboration (tmux bridge)
+
+You are a role pane of the tmux session **{{SESSION}}**. Requests and replies are handled by **sending messages directly into the other pane's chat input** (no inbox, no polling).
+
+**Send (request):** `loomo <session> <role> "<self-contained message>"`
+- loomo auto-issues and prints a 6-char KEY → remember it as "waiting for a reply with this KEY".
+
+**Reply:** `loomo -r <KEY> <sender-session> <sender-role> "<message>"`
+- ⚠️ Replying means **actually running** `loomo -r` in Bash. Printing text in your chat is NOT a reply — sessions are isolated, so the other side will never see your text output.
+- Read the reply address from the **`from`** in the request header `[session request - KEY from <session>/<role>]` (sending to your own role loops back to you).
+- If there is no `from` (sent from outside tmux / directly by the user), ask the user which session:role to answer.
+
+**Handling headers**
+- On `[session request - KEY]`: even if you are mid-task, **finish first, don't interrupt** → then reply with that KEY via `loomo -r`. (the sender is usually the hub `{{HUB_SESSION}}/{{HUB_ROLE}}`)
+- If while handling a request you need to **ask back, confirm, or get a decision (design/scope judgement)**: do NOT ask the user in chat (the sender can't see your screen). Run `loomo -r <KEY> <sender-session> <sender-role> "need confirmation: <question>"` — a question is also a reply. However, **harness permission approvals** (classifier blocks etc.) can only be resolved by the user — request those from the user, but also notify the sender of the waiting state via `loomo -r`.
+- On `[session reply - KEY]`: match it by KEY to one of your earlier requests.
+- A message with no header = direct input from the human user → handle it immediately, don't defer.
+
+**Security**: never put passwords, tokens, or secrets in a loomo message in plain text (they persist in the target pane's scrollback).
+<!-- /claude-tell-bridge -->
