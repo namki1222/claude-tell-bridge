@@ -77,6 +77,9 @@ resolve_self() {
 }
 SELF_DIR=$(resolve_self)
 TEMPLATE_DIR="$SELF_DIR/../templates"
+BRAND="${TELL_BRAND:-loomo}"   # 브랜드명 (배너/도움말)
+# 에이전트 표시명 (배너/도움말 문구용)
+case "$TELL_AGENT" in codex) AGENT_LABEL="Codex" ;; *) AGENT_LABEL="Claude Code" ;; esac
 
 # ── CLI UI 킷 (컬러는 TTY에서만, NO_COLOR 존중) ────────────────────────────────
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
@@ -87,7 +90,7 @@ fi
 banner() {
   echo ""
   echo "${C_C}${C_B}════════════════════════════════════════════════════${C_X}"
-  echo "${C_C}${C_B}   🔗 claude-tell-bridge — $1${C_X}"
+  echo "${C_C}${C_B}   🔗 $BRAND — $1${C_X}"
   echo "${C_C}${C_B}════════════════════════════════════════════════════${C_X}"
 }
 step() { echo ""; echo "${C_Y}${C_B}▶ $1${C_X}"; }
@@ -111,7 +114,7 @@ cmd_help() {
   row() { printf "  ${C_C}%-12s${C_X} %s\n" "$1" "$2"; }
   banner "help${V:+ · v$V}"
   echo ""
-  echo "  여러 Claude Code 세션을 한 화면에 띄우고, 세션끼리 대화하게 한다."
+  echo "  여러 $AGENT_LABEL 세션을 한 화면에 띄우고, 세션끼리 대화하게 한다."
   echo "  ${C_D}세션 = 프로젝트 팀 · 패널(역할) = 그 팀에 상주하는 Claude 하나${C_X}"
   echo ""
   echo "${C_Y}${C_B}메시징 — 에이전트(Claude)끼리 쓰는 명령${C_X}"
@@ -155,7 +158,7 @@ cmd_doctor() {
   if [ -n "${TMUX:-}" ]; then echo "✅ tmux 세션 안에서 실행 중 (발신자 헤더 자동)"; else echo "ℹ️  tmux 밖 — 발신자(from) 헤더 없이 전송됨"; fi
   if [ -f "$WS_CONF" ]; then echo "✅ 워크스페이스 설정: $WS_CONF ($(grep -cvE '^[[:space:]]*(#|$)' "$WS_CONF" 2>/dev/null || echo 0)줄)"; else echo "ℹ️  워크스페이스 설정 없음 — 'tell init' 또는 'tell adopt'로 생성"; fi
   if get_hub; then echo "✅ 허브: $HUB · $HUBR (허브는 하나만)"; else echo "ℹ️  허브 없음 — 'tell hub'로 등록 (선택)"; fi
-  [ -f "$TEMPLATE_DIR/CLAUDE-section-role.md" ] && echo "✅ 패키지 리소스 정상" || echo "⚠️  패키지 손상 — 'npm i -g claude-tell-bridge' 재설치 필요"
+  [ -f "$TEMPLATE_DIR/CLAUDE-section-role.md" ] && echo "✅ 패키지 리소스 정상" || echo "⚠️  패키지 손상 — 'npm i -g loomo' 재설치 필요"
   return $ok
 }
 
@@ -163,7 +166,7 @@ cmd_doctor() {
 append_role_template() { # $1=dir  $2=session  $3=roles(공백구분)  $4=hub_session  $5=hub_role
   local dir="$1" session="$2" roles="$3" hub_s="$4" hub_r="$5"
   local f="$dir/$AGENT_CONV" t="$TEMPLATE_DIR/CLAUDE-section-role.md"
-  [ -f "$t" ] || { warn "설치 손상 — 'npm i -g claude-tell-bridge' 재설치 필요"; return 1; }
+  [ -f "$t" ] || { warn "설치 손상 — 'npm i -g loomo' 재설치 필요"; return 1; }
   if [ -f "$f" ] && grep -q '세션 요청 - KEY' "$f" 2>/dev/null; then
     return 0   # 이미 연결돼 있음 — 조용히 통과
   fi

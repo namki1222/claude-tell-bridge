@@ -1,8 +1,9 @@
 {
-  "name": "claude-tell-bridge",
+  "name": "loomo",
   "version": "0.6.0",
-  "description": "Session-to-session messaging bridge for Claude Code over tmux — correlation-keyed async requests/replies between long-lived AI agent panes",
+  "description": "Weave your AI coding sessions into a team that talks to each other — over tmux. Works with Claude Code and Codex. Correlation-keyed async messaging between long-lived panes.",
   "bin": {
+    "loomo": "bin/tell",
     "tell": "bin/tell"
   },
   "files": [
@@ -20,8 +21,10 @@
   ],
   "preferGlobal": true,
   "keywords": [
+    "loomo",
     "claude",
     "claude-code",
+    "codex",
     "tmux",
     "multi-agent",
     "agent-orchestration",
