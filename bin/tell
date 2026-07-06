@@ -252,10 +252,15 @@ make_hub() { # 허브 세션 등록 + 허브 CLAUDE.md 생성. 성공 시 HUB/HU
 
 cmd_init() {
   banner "init · 셋업 마법사"
-  note "개념: 세션 = 프로젝트 / 패널(역할) = 그 프로젝트에 상주하는 Claude 하나"
+  note "개념: 세션 = 프로젝트 / 패널(역할) = 그 프로젝트에 상주하는 AI 하나"
   note "언제든 Ctrl+C 로 종료할 수 있습니다 — 그때까지 입력한 내용은 저장됩니다."
   mkdir -p "$CONFIG_DIR"
   trap 'echo ""; ok "지금까지 입력분 저장됨: $WS_CONF   (이어서: tell init / 확인: tell list)"; exit 0' INT
+  step "기본 AI 모델"
+  note "이 워크스페이스에서 주로 쓸 AI. 세션(패널)마다 다르게도 지정할 수 있습니다 (claude·codex 혼합 가능)."
+  ask "기본 모델 [claude / codex, 엔터=claude]: "; read -r DEFAG
+  case "$DEFAG" in codex) DEFAG=codex ;; *) DEFAG=claude ;; esac
+  ok "기본 모델: ${C_B}$DEFAG${C_X}"
   step "[1/2] 총괄 관리(허브) 세션 — 선택사항"
   if get_hub; then # 허브는 하나만 — 이미 있으면 그대로 쓰고 프로젝트 등록으로 넘어간다
     ok "기존 허브 사용: ${C_B}$HUB · $HUBR${C_X}  (허브는 하나만 유지됩니다)"
@@ -282,10 +287,13 @@ cmd_init() {
       ask "  추가할 패널(역할) 이름 (빈 값 = 이 프로젝트 완료): "; read -r R; [ -z "$R" ] && break
       ask "  '$R' 담당 디렉터리: "; read -e -r D; D=$(abspath "$D")
       [ -z "$D" ] && { warn "디렉터리는 필수"; continue; }
+      ask "  '$R' 모델 [엔터=$DEFAG · claude · codex]: "; read -r AG
+      case "$AG" in codex) AG=codex ;; claude) AG=claude ;; *) AG="$DEFAG" ;; esac
+      load_agent_profile "$AG"   # 규약 파일(CLAUDE.md/AGENTS.md)·대화 조회를 이 모델에 맞춤
       ask_resume_id "$D"
-      echo "$S|$R|$D|$RID" >> "$WS_CONF"
+      echo "$S|$R|$D|$RID|$AG" >> "$WS_CONF"
       append_role_template "$D" "$S" "$R" "$HUB" "$HUBR"
-      ok "패널 추가 완료 — ${C_B}$S · $R${C_X}"
+      ok "패널 추가 완료 — ${C_B}$S · $R${C_X} ${C_D}($AG)${C_X}"
       note "계속 추가하려면 다음 패널 이름 입력 · 그만하려면 엔터(빈 값) 또는 Ctrl+C"
       note "────────────────────────────────────────"
     done
