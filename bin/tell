@@ -601,7 +601,7 @@ _tell() {
     COMPREPLY=($(compgen -W "$LAYOUTS" -- "$cur"))
   fi
 }
-complete -F _tell tell
+complete -F _tell tell loomo
 EOS
   # 터미널에서 직접 실행했을 때만 적용법 안내 (eval로 캡처될 땐 stdout이 tty가 아니므로 침묵)
   [ -t 1 ] && echo "# 적용: echo 'eval \"\$(tell completion)\"' >> ~/.zshrc  (bash는 ~/.bashrc)" >&2
