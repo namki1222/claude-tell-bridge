@@ -269,7 +269,7 @@ cmd_init() {
   trap 'echo ""; ok "saved so far: $WS_CONF   (continue: loomo init / check: loomo list)"; exit 0' INT
   step "Default AI model"
   note "the AI you mostly use here. You can override it per pane (mix claude & codex)."
-  ask "default model [claude / codex, Enter=claude]: "; read -r DEFAG
+  choose DEFAG "default AI model" claude codex
   case "$DEFAG" in codex) DEFAG=codex ;; *) DEFAG=claude ;; esac
   ok "default model: ${C_B}$DEFAG${C_X}"
   step "[1/2] Manager (hub) session — optional"
@@ -280,8 +280,8 @@ cmd_init() {
     note "e.g. tell the hub \"add an API on the server and a button on the web\""
     note "    → it dispatches to both sessions and reports back when they finish."
     note "optional — sessions talk to each other directly anyway. Add later: loomo hub"
-    ask "create a hub session? [y/N]: "; read -r MK
-    if [ "$MK" = "y" ] || [ "$MK" = "Y" ]; then
+    choose MK "create a hub session?" No Yes
+    if [ "$MK" = "Yes" ]; then
       make_hub
     else
       skip "skipped (add later: loomo hub)"
@@ -307,11 +307,10 @@ cmd_init() {
     break
   done
   local NROLE=0
+  note "roles are the AIs in this project — one per role (e.g. server / web / app)"
   while :; do
     echo ""
-    if [ "$NROLE" -eq 0 ]; then ask "  add a role to '$S' — e.g. server / web / app (empty = done): "
-    else ask "  add another role (empty = done): "; fi
-    read -r R; [ -z "$R" ] && break
+    ask "  add a role (empty = done): "; read -r R; [ -z "$R" ] && break
     case "$R" in *" "*) warn "no spaces in a role name — use - or _"; continue ;; esac
     if [ -f "$WS_CONF" ] && LC_ALL=C awk -F'|' -v s="$S" -v r="$R" '$1==s && $2==r{f=1} END{exit !f}' "$WS_CONF"; then
       warn "role '$R' already exists in '$S' — pick another"; continue
@@ -320,11 +319,12 @@ cmd_init() {
     [ -z "$D" ] && { warn "directory is required"; continue; }
     if [ ! -d "$D" ]; then                       # 오타/미존재 방지 — 없으면 만들지 물어봄
       warn "no such directory: $D"
-      ask "  create it? [Y/n]: "; read -r CR
-      case "$CR" in n|N) skip "not created — make it before you start" ;; *) mkdir -p "$D" && ok "created: $D" ;; esac
+      choose CR "create it?" Yes No
+      if [ "$CR" = "Yes" ]; then mkdir -p "$D" && ok "created: $D"; else skip "not created — make it before you start"; fi
     fi
-    ask "  model for '$R' [Enter=$DEFAG · claude · codex]: "; read -r AG
-    case "$AG" in codex) AG=codex ;; claude) AG=claude ;; *) AG="$DEFAG" ;; esac
+    if [ "$DEFAG" = "codex" ]; then choose AG "model for '$R'" codex claude
+    else choose AG "model for '$R'" claude codex; fi
+    case "$AG" in codex) AG=codex ;; *) AG=claude ;; esac
     load_agent_profile "$AG"   # convention file (CLAUDE.md/AGENTS.md) & session lookup follow this model
     ask_resume_id "$D"
     echo "$S|$R|$D|$RID|$AG" >> "$WS_CONF"
@@ -337,8 +337,8 @@ cmd_init() {
   ok "project '${C_B}$S${C_X}${C_G}' configured — $NROLE role(s), saved to $WS_CONF"
   echo ""
   if [ -t 0 ] && [ -t 1 ]; then          # 사람 터미널 → 방금 만든 이 프로젝트만 켤지 물어봄
-    ask "Start '$S' now? [Y/n]: "; read -r GO
-    case "$GO" in n|N) note "start later: ${C_C}loomo up $S${C_X}" ;; *) cmd_up "$S"; return $? ;; esac
+    choose GO "Start '$S' now?" Yes No
+    if [ "$GO" = "Yes" ]; then cmd_up "$S"; return $?; else note "start later: ${C_C}loomo up $S${C_X}"; fi
   else
     echo "  ${C_C}loomo up $S${C_X}    # start this project"
     echo "  ${C_C}loomo list${C_X}     # who you can talk to"
@@ -380,8 +380,8 @@ cmd_adopt() {
       echo "$S|$ROLE|$D" >> "$WS_CONF"
       append_role_template "$D" "$S" "$ROLE" "$HUB" "$HUBR"
       ok "pane adopted — ${C_B}$S · $ROLE${C_X}"
-      ask "  run a connection test (ping) with this pane now? [y/N]: "; read -r GO </dev/tty
-      if [ "$GO" = "y" ]; then
+      choose GO "  run a connection test (ping) with this pane now?" No Yes
+      if [ "$GO" = "Yes" ]; then
         "$0" "$S" "$ROLE" "Connection check. Re-read your convention file, then reply via the reply command with the KEY you received — one line: pong ok."
       fi
       note "────────────────────────────────────────"
@@ -467,11 +467,21 @@ cmd_rm() { # 워크스페이스 삭제 — 종료 + 설정 제거 + 규약 블�
   local NAME="${1:-}"
   if [ -z "$NAME" ]; then
     banner "rm · delete workspace"
-    echo "usage: ${C_B}loomo rm <session>${C_X}   ${C_D}(to just stop it: loomo down <session>)${C_X}"
-    if [ -f "$WS_CONF" ]; then
-      step "registered workspaces"; grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | awk -F'|' '{print $1}' | awk '!seen[$0]++'
+    local NAMES=""
+    [ -f "$WS_CONF" ] && NAMES=$(grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | awk -F'|' '{print $1}' | awk '!seen[$0]++')
+    if [ -z "$NAMES" ]; then warn "no registered workspaces"; exit 2; fi
+    if [ -t 1 ] && { : </dev/tty; } 2>/dev/null; then    # TTY → 어느 워크스페이스를 지울지 화살표로 고르기
+      note "which workspace to delete? ${C_D}(↑↓ · Enter select · q cancel)${C_X}"
+      pick_menu <<EOF
+$NAMES
+EOF
+      [ $? -eq 130 ] && { skip "cancelled"; exit 0; }
+      NAME="$PICKED"
+    else
+      echo "usage: ${C_B}loomo rm <session>${C_X}   ${C_D}(to just stop it: loomo down <session>)${C_X}"
+      step "registered workspaces"; printf '%s\n' "$NAMES"
+      exit 2
     fi
-    exit 2
   fi
   banner "rm · delete workspace '$NAME'"
   local IN_CONF=0 RUNNING=0
@@ -484,8 +494,8 @@ cmd_rm() { # 워크스페이스 삭제 — 종료 + 설정 제거 + 규약 블�
   [ "$IN_CONF" = 1 ] && note "  · the bridge convention block in its convention file"
   get_hub && [ "$HUB" = "$NAME" ] && note "  · the hub designation"
   note "  ${C_B}your project files & code are untouched${C_X}"
-  ask "proceed? [y/N]: "; read -r A
-  { [ "$A" = "y" ] || [ "$A" = "Y" ]; } || { skip "cancelled"; exit 0; }
+  choose A "proceed with delete?" No Yes
+  [ "$A" = "Yes" ] || { skip "cancelled"; exit 0; }
   [ "$RUNNING" = 1 ] && tmux kill-session -t "=$NAME" && ok "session killed"
   if [ "$IN_CONF" = 1 ]; then
     local DIRS D
@@ -516,9 +526,29 @@ cmd_down() { # 끄기 — tmux 세션 종료만, 설정은 유지 (반대: tell 
   local T="${1:-}"
   banner "down · stop"
   if [ -z "$T" ]; then
-    echo "usage: ${C_B}loomo down <session>${C_X} or ${C_B}loomo down --all${C_X}   ${C_D}(config kept — full delete: loomo rm)${C_X}"
-    step "running sessions"; tmux ls 2>/dev/null || note "(none)"
-    exit 2
+    local RUNNING="" S
+    if [ -f "$WS_CONF" ]; then
+      while IFS= read -r S; do
+        [ -n "$S" ] && tmux has-session -t "=$S" 2>/dev/null && RUNNING="$RUNNING$S
+"
+      done <<EOF
+$(grep -vE '^[[:space:]]*(#|$)' "$WS_CONF" | awk -F'|' '{print $1}' | awk '!seen[$0]++')
+EOF
+    fi
+    if [ -z "$RUNNING" ]; then note "no registered sessions are running"; exit 0; fi
+    if [ -t 1 ] && { : </dev/tty; } 2>/dev/null; then    # TTY → 어느 세션을 끌지 화살표로 (맨 위=전부)
+      note "which session to stop? ${C_D}(↑↓ · Enter select · q cancel)${C_X}"
+      pick_menu <<EOF
+— all of them —
+$RUNNING
+EOF
+      [ $? -eq 130 ] && { skip "cancelled"; exit 0; }
+      if [ "$PICK_IDX" = 0 ]; then T="--all"; else T="$PICKED"; fi
+    else
+      echo "usage: ${C_B}loomo down <session>${C_X} or ${C_B}loomo down --all${C_X}   ${C_D}(config kept — full delete: loomo rm)${C_X}"
+      step "running sessions"; printf '%s' "$RUNNING" | sed 's/^/  · /'
+      exit 2
+    fi
   fi
   case "$T" in
     --all|-all|all)
@@ -534,8 +564,8 @@ EOF
       if [ -z "$RUN" ]; then note "no registered sessions are running"; exit 0; fi
       echo "will stop (registered sessions only — other tmux sessions untouched):"
       printf '%s' "$RUN" | sed 's/^/  · /'
-      ask "stop them all? open conversations will close [y/N]: "; read -r A
-      { [ "$A" = "y" ] || [ "$A" = "Y" ]; } || { skip "cancelled"; exit 0; }
+      choose A "stop them all? open conversations will close" No Yes
+      [ "$A" = "Yes" ] || { skip "cancelled"; exit 0; }
       while IFS= read -r S; do
         [ -n "$S" ] && tmux kill-session -t "=$S" 2>/dev/null && ok "$S stopped"
       done <<EOF
@@ -546,8 +576,8 @@ EOF
     *)
       tmux has-session -t "=$T" 2>/dev/null || { warn "not running: $T"; exit 1; }
       local n; n=$(tmux list-panes -t "=$T" 2>/dev/null | wc -l | tr -d ' ')
-            ask "stop '$T' ($n panes)? open conversations will close [y/N]: "; read -r A
-      if [ "$A" = "y" ] || [ "$A" = "Y" ]; then
+      choose A "stop '$T' ($n panes)? open conversations will close" No Yes
+      if [ "$A" = "Yes" ]; then
         tmux kill-session -t "=$T" && ok "$T stopped — start again: ${C_C}loomo up $T${C_X}"
       else
         skip "cancelled"
@@ -707,6 +737,50 @@ end tell
 EOF
     fi
   fi
+}
+
+pick_menu() { # $1=옵션들(개행 구분) → PICKED / PICK_IDX 설정. ↑↓ 이동·Enter 선택·q/ESC 취소(→130). TTY 전용
+  PICKED=""; PICK_IDX=-1
+  local opts=() line n sel=0 key rest j
+  while IFS= read -r line; do [ -n "$line" ] && opts[${#opts[@]}]="$line"; done   # 빈 줄(끝 개행 등) 스킵
+  n=${#opts[@]}; [ "$n" -eq 0 ] && return 1
+  printf '\033[?25l'
+  trap 'printf "\033[?25h\n"; return 130' INT
+  _dm() { for ((j=0;j<n;j++)); do printf '\033[2K'
+    if [ "$j" -eq "$sel" ]; then printf '  %b❯ %s%b\n' "${C_C}${C_B}" "${opts[$j]}" "${C_X}"
+    else printf '    %s\n' "${opts[$j]}"; fi; done; }
+  _dm
+  while :; do
+    IFS= read -rsn1 key </dev/tty || { sel=-1; break; }
+    if [ "$key" = $'\x1b' ]; then IFS= read -rsn2 -t 1 rest </dev/tty || rest=""; case "$rest" in '[A') key=UP ;; '[B') key=DOWN ;; *) key=ESC ;; esac; fi
+    case "$key" in
+      UP|k)    sel=$(( (sel - 1 + n) % n )) ;;
+      DOWN|j)  sel=$(( (sel + 1) % n )) ;;
+      "")      break ;;                       # Enter
+      q|Q|ESC) sel=-1; break ;;
+    esac
+    printf '\033[%dA' "$n"; _dm
+  done
+  printf '\033[?25h'; trap - INT
+  [ "$sel" -lt 0 ] && return 130
+  PICKED="${opts[$sel]}"; PICK_IDX=$sel; return 0
+}
+
+choose() { # $1=결과변수 $2=프롬프트 $3...=옵션 → TTY면 화살표 피커, 아니면 read(엔터=첫 옵션). 취소 시 CHOOSE_CANCELLED=1
+  CHOOSE_CANCELLED=0
+  local __v="$1" prompt="$2"; shift 2
+  if [ -t 1 ] && { : </dev/tty; } 2>/dev/null; then   # stdout=터미널 + /dev/tty 열림 → 파이프 안(adopt)에서도 동작, 에이전트(제어터미널 없음)는 폴백
+    note "$prompt ${C_D}(↑↓ · Enter select · q cancel)${C_X}"
+    pick_menu <<EOF
+$(printf '%s\n' "$@")
+EOF
+    [ $? -eq 130 ] && { CHOOSE_CANCELLED=1; printf -v "$__v" '%s' ""; return 1; }
+    printf -v "$__v" '%s' "$PICKED"
+  else
+    local _a; ask "$prompt [$*, Enter=$1]: "; read -r _a
+    printf -v "$__v" '%s' "${_a:-$1}"
+  fi
+  return 0
 }
 
 pick_project() { # stdin=프로젝트 목록 → PICKED / PICK_ACT(enter|all|quit) 설정. TTY 전용 인터랙티브 피커
