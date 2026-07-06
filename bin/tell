@@ -292,12 +292,28 @@ cmd_init() {
   note "Inside it you add ${C_B}roles${C_D} — one AI per role (server / web / app...)."
   note "(To add more projects, run 'loomo init' again later.)"
   echo ""
-  ask "project name: "; read -r S
-  [ -z "$S" ] && { warn "project name is required"; exit 2; }
+  local S
+  while :; do
+    ask "project name (no spaces): "; read -r S
+    [ -z "$S" ] && { warn "project name is required"; exit 2; }
+    case "$S" in
+      *" "*)    warn "no spaces in a project name — use - or _ (e.g. my-app)"; continue ;;
+      *[=:.]* ) warn "'=', ':', '.' are not allowed in a session name"; continue ;;
+    esac
+    if tmux has-session -t "=$S" 2>/dev/null; then warn "'$S' is already a running session — pick another name"; continue; fi
+    if [ -f "$WS_CONF" ] && LC_ALL=C awk -F'|' -v s="$S" '$1==s{f=1} END{exit !f}' "$WS_CONF"; then
+      warn "'$S' is already registered — pick another name (or remove it: loomo rm $S)"; continue
+    fi
+    break
+  done
   local NROLE=0
   while :; do
     echo ""
     ask "  add a role to '$S' (empty = done): "; read -r R; [ -z "$R" ] && break
+    case "$R" in *" "*) warn "no spaces in a role name — use - or _"; continue ;; esac
+    if [ -f "$WS_CONF" ] && LC_ALL=C awk -F'|' -v s="$S" -v r="$R" '$1==s && $2==r{f=1} END{exit !f}' "$WS_CONF"; then
+      warn "role '$R' already exists in '$S' — pick another"; continue
+    fi
     ask "  directory for '$R': "; read -e -r D; D=$(abspath "$D")
     [ -z "$D" ] && { warn "directory is required"; continue; }
     if [ ! -d "$D" ]; then                       # 오타/미존재 방지 — 없으면 만들지 물어봄
