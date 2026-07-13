@@ -67,10 +67,12 @@
 
 <br>
 
+**`loomo init`이 이걸 전부 설치해줍니다** — 설치 직후 실행하세요(이미 있는 건 건너뜁니다). 아래 표는 참고/수동 설치용입니다.
+
 | 필요한 것 | 확인 | 비고 |
 |---|---|---|
-| **tmux** | `tmux -V` | 3.x 권장 · `brew install tmux` |
-| **Claude Code 및/또는 Codex** | `claude --version` / `codex --version` | 각 패널의 AI — 섞어 써도 됨 |
+| **tmux** | `tmux -V` | 3.x 권장 · `loomo init` (또는 `brew install tmux`) |
+| **Claude Code 및/또는 Codex** | `claude --version` / `codex --version` | 각 패널의 AI — 섞어 써도 됨 · `loomo init`이 둘 다 설치 |
 | **Node.js / npm** | `npm -v` | 설치 채널로만 (런타임은 순수 셸) |
 | macOS 또는 Linux | — | Windows는 WSL에서 동작 예상 (미검증) |
 
@@ -87,8 +89,12 @@
 ```bash
 npm install -g @namki1222/loomo
 
-loomo doctor        # 환경 점검
+loomo init          # 1단계 — 사전 요구사항 설치: tmux + Claude Code + Codex (있는 건 건너뜀)
+loomo doctor        # 2단계 — 환경 점검
+loomo add           # 3단계 — 팀 구성
 ```
+
+<sub>`loomo init`은 tmux(OS 패키지 매니저: `brew` / `apt` / `dnf` / `pacman` / `apk`)와 AI CLI(`@anthropic-ai/claude-code`, `@openai/codex`, npm)를 설치합니다. 멱등이라 이미 있는 건 건너뛰므로 언제 실행해도 안전하며, 설치 직후 첫 단계로 권장합니다.</sub>
 
 <sub>1.1 이전의 한국어 헤더 세팅을 쓰고 있다면 `export LOOMO_LANG=ko` 한 줄로 기존 프로토콜이 그대로 유지됩니다.</sub>
 
@@ -103,7 +109,7 @@ loomo doctor        # 환경 점검
 <br>
 
 ```bash
-loomo init
+loomo add
 ```
 
 <br>
@@ -114,9 +120,11 @@ loomo init
 
 - **1 · 기본 AI 모델** — `claude` 또는 `codex`. 세션마다 다르게도 지정할 수 있어서, Claude와 Codex가 한 화면을 공유한다.
 
-- **2 · 허브(관리자) 세션?** — 프로젝트를 대신 지휘하는 '비서'. 엔터로 건너뛰고 나중에 `loomo hub`로 추가.
+- **2 · 프로젝트** — 각각: **프로젝트 이름(=세션)** → **역할(=패널)** → **디렉터리**(화살표 브라우저 — 풀 경로 타이핑 없음) → **모델**(엔터=기본). 역할은 여러 개.
 
-- **3 · 프로젝트** — 각각: **프로젝트 이름(=세션)** → **역할(=패널)** → **디렉터리** → **모델**(엔터=기본). 역할은 여러 개.
+<br>
+
+<sub>허브(비서) 세션이 필요하면 `loomo hub`(새로 생성) 또는 `loomo adopt`(기존 세션 지정)로 따로 설정한다.</sub>
 
 <br>
 
@@ -176,7 +184,8 @@ web한테 주문 스키마 바뀐 거 알려주고 UI 반영시켜줘
 | `loomo down <세션>` \| `--all` | 끄기 — 세션 종료만, 설정 유지 |
 | `loomo ws <세션>` | 하나 켜고 접속 |
 | `loomo layout [<세션>] <프리셋>` | 패널 배치(`tiled` / `main-vertical` / …), `tmux.conf` 불필요 |
-| `loomo init` | 셋업 마법사 — 모델·허브·프로젝트/역할/디렉터리 + 규약 |
+| `loomo init` | 사전 요구사항 설치 — tmux + Claude Code + Codex (있는 건 건너뜀) |
+| `loomo add` | 프로젝트 등록 — 세션·역할·디렉터리·모델 + 규약 |
 | `loomo adopt` | 이미 쓰던 AI 편입 — 재시작 없이 |
 | `loomo hub` | 관리자(허브) 세션 등록 — 하나만 |
 | `loomo list` | 주소록 — 말 걸 수 있는 상대 + 상태 |
@@ -203,7 +212,7 @@ echo 'eval "$(loomo completion)"' >> ~/.zshrc
 
 브릿지는 에이전트 무관이라, **Claude로 도는 허브가 Codex로 도는 프로젝트를 지휘**할 수 있다 — 반대도 된다.
 
-모델은 `loomo init`에서(또는 `~/.config/loomo/workspaces.conf`의 5번째 필드로) 세션별로 지정한다:
+모델은 `loomo add`에서(또는 `~/.config/loomo/workspaces.conf`의 5번째 필드로) 세션별로 지정한다:
 
 <br>
 

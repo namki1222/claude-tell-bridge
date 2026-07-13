@@ -67,10 +67,12 @@ Each session is **long-lived** — a resident teammate that keeps its own projec
 
 <br>
 
+**`loomo init` installs all of these for you** — run it right after installing (it skips whatever is already present). The table below is just for reference / manual setup.
+
 | Need | Check | Notes |
 |---|---|---|
-| **tmux** | `tmux -V` | 3.x recommended · `brew install tmux` |
-| **Claude Code and/or Codex** | `claude --version` / `codex --version` | the AI in each pane — mix freely |
+| **tmux** | `tmux -V` | 3.x recommended · `loomo init` (or `brew install tmux`) |
+| **Claude Code and/or Codex** | `claude --version` / `codex --version` | the AI in each pane — mix freely · `loomo init` installs both |
 | **Node.js / npm** | `npm -v` | install channel only (runtime is pure shell) |
 | macOS or Linux | — | Windows expected under WSL (untested) |
 
@@ -87,8 +89,12 @@ Each session is **long-lived** — a resident teammate that keeps its own projec
 ```bash
 npm install -g @namki1222/loomo
 
-loomo doctor        # environment check
+loomo init          # step 1 — install prerequisites: tmux + Claude Code + Codex (skips what's present)
+loomo doctor        # step 2 — verify the environment
+loomo add           # step 3 — build your team
 ```
+
+<sub>`loomo init` installs tmux (via your OS package manager: `brew` / `apt` / `dnf` / `pacman` / `apk`) and the AI CLIs (`@anthropic-ai/claude-code`, `@openai/codex`) via npm. It's idempotent — anything already installed is skipped — so it's always safe to run, and it's the recommended first step after install.</sub>
 
 <sub>Upgrading from a Korean-header setup (pre-1.1)? `export LOOMO_LANG=ko` keeps your existing protocol headers.</sub>
 
@@ -103,7 +109,7 @@ loomo doctor        # environment check
 <br>
 
 ```bash
-loomo init
+loomo add
 ```
 
 <br>
@@ -114,9 +120,11 @@ The wizard asks, in order:
 
 - **1 · Default AI model** — `claude` or `codex`. You can override it per session later, so Claude and Codex can share one screen.
 
-- **2 · A hub (manager) session?** — an optional "secretary" that directs your projects. Skip with Enter; add later with `loomo hub`.
+- **2 · Projects** — for each: **project name (= session)** → **role (= pane)** → **directory** (arrow-key browser — no typing full paths) → **model** (Enter = default). Multiple roles per project.
 
-- **3 · Projects** — for each: **project name (= session)** → **role (= pane)** → **directory** → **model** (Enter = default). Multiple roles per project.
+<br>
+
+<sub>Need a hub (secretary) session? Set one up separately with `loomo hub` (new) or `loomo adopt` (designate an existing session).</sub>
 
 <br>
 
@@ -176,7 +184,8 @@ Everything you run is a management command — a handful of them. Sessions messa
 | `loomo down <session>` \| `--all` | stop — kill the session only, config kept |
 | `loomo ws <session>` | start one and attach |
 | `loomo layout [<session>] <preset>` | rearrange panes (`tiled` / `main-vertical` / …), no `tmux.conf` |
-| `loomo init` | setup wizard — model, hub, projects/roles/dirs + convention |
+| `loomo init` | install prerequisites — tmux + Claude Code + Codex (skips what's present) |
+| `loomo add` | register a project — session, roles, dirs, model + convention |
 | `loomo adopt` | bring in AIs you're already running — no restart |
 | `loomo hub` | register the manager (hub) session — only one |
 | `loomo list` | address book — who you can talk to + status |
@@ -203,7 +212,7 @@ echo 'eval "$(loomo completion)"' >> ~/.zshrc
 
 The bridge is agent-agnostic, so a **hub running Claude can command a project running Codex** — and vice versa.
 
-Set the model per session in `loomo init` (or the 5th field of `~/.config/loomo/workspaces.conf`):
+Set the model per session in `loomo add` (or the 5th field of `~/.config/loomo/workspaces.conf`):
 
 <br>
 

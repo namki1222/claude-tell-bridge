@@ -67,10 +67,12 @@
 
 <br>
 
+**`loomo init` 会为你安装以下全部内容** —— 安装后立即运行（已存在的会自动跳过）。下表仅供参考 / 手动安装。
+
 | 需要 | 检查 | 说明 |
 |---|---|---|
-| **tmux** | `tmux -V` | 建议 3.x · `brew install tmux` |
-| **Claude Code 和/或 Codex** | `claude --version` / `codex --version` | 每个窗格里的 AI —— 可自由混用 |
+| **tmux** | `tmux -V` | 建议 3.x · `loomo init`（或 `brew install tmux`） |
+| **Claude Code 和/或 Codex** | `claude --version` / `codex --version` | 每个窗格里的 AI —— 可自由混用 · `loomo init` 两者都装 |
 | **Node.js / npm** | `npm -v` | 仅作安装渠道（运行时是纯 shell） |
 | macOS 或 Linux | — | Windows 预期可在 WSL 下运行（未验证） |
 
@@ -87,8 +89,12 @@
 ```bash
 npm install -g @namki1222/loomo
 
-loomo doctor        # 环境检查
+loomo init          # 第 1 步 —— 安装前置依赖：tmux + Claude Code + Codex（已存在则跳过）
+loomo doctor        # 第 2 步 —— 检查环境
+loomo add           # 第 3 步 —— 组建团队
 ```
+
+<sub>`loomo init` 通过系统包管理器（`brew` / `apt` / `dnf` / `pacman` / `apk`）安装 tmux，并通过 npm 安装 AI CLI（`@anthropic-ai/claude-code`、`@openai/codex`）。它是幂等的 —— 已安装的会跳过 —— 因此随时运行都安全，推荐作为安装后的第一步。</sub>
 
 <sub>从 1.1 之前的韩语协议头升级？`export LOOMO_LANG=ko` 可保持原有协议头不变。</sub>
 
@@ -103,7 +109,7 @@ loomo doctor        # 环境检查
 <br>
 
 ```bash
-loomo init
+loomo add
 ```
 
 <br>
@@ -114,9 +120,11 @@ loomo init
 
 - **1 · 默认 AI 模型** —— `claude` 或 `codex`。之后可按会话覆盖，所以 Claude 和 Codex 能共享一块屏幕。
 
-- **2 · 要中枢（管理）会话吗？** —— 替你指挥项目的"秘书"。回车跳过，之后用 `loomo hub` 添加。
+- **2 · 项目** —— 每个：**项目名（= 会话）** → **角色（= 窗格）** → **目录**（方向键浏览器 —— 无需输入完整路径） → **模型**（回车 = 默认）。每个项目可多个角色。
 
-- **3 · 项目** —— 每个：**项目名（= 会话）** → **角色（= 窗格）** → **目录** → **模型**（回车 = 默认）。每个项目可多个角色。
+<br>
+
+<sub>需要中枢（秘书）会话？用 `loomo hub`（新建）或 `loomo adopt`（指定现有会话）单独设置。</sub>
 
 <br>
 
@@ -176,7 +184,8 @@ loomo list          # 现在你能对话的对象
 | `loomo down <会话>` \| `--all` | 停止 —— 仅终止会话，保留配置 |
 | `loomo ws <会话>` | 启动一个并接入 |
 | `loomo layout [<会话>] <预设>` | 重排窗格（`tiled` / `main-vertical` / …），无需 `tmux.conf` |
-| `loomo init` | 设置向导 —— 模型·中枢·项目/角色/目录 + 约定 |
+| `loomo init` | 安装前置依赖 —— tmux + Claude Code + Codex（已存在则跳过） |
+| `loomo add` | 注册项目 —— 会话·角色·目录·模型 + 约定 |
 | `loomo adopt` | 接入已在运行的 AI —— 无需重启 |
 | `loomo hub` | 注册管理（中枢）会话 —— 只允许一个 |
 | `loomo list` | 通讯录 —— 可对话对象 + 状态 |
@@ -203,7 +212,7 @@ echo 'eval "$(loomo completion)"' >> ~/.zshrc
 
 桥与具体 agent 无关，所以**跑 Claude 的中枢可以指挥跑 Codex 的项目**——反之亦然。
 
-在 `loomo init`（或 `~/.config/loomo/workspaces.conf` 的第 5 字段）里按会话指定模型：
+在 `loomo add`（或 `~/.config/loomo/workspaces.conf` 的第 5 字段）里按会话指定模型：
 
 <br>
 

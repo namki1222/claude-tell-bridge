@@ -3,6 +3,18 @@
 All notable changes to this project are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/); this project follows [SemVer](https://semver.org/).
 
+## [1.4.0] - 2026-07-13
+
+### Added
+- **`loomo init` — one-command prerequisites.** Installs the three things loomo needs and skips whatever is already present: **tmux** (via your OS package manager — `brew` on macOS, `apt`/`dnf`/`pacman`/`apk` on Linux) and the AI CLIs **Claude Code** (`@anthropic-ai/claude-code`) and **Codex** (`@openai/codex`) via npm. Idempotent, shows a plan and asks before installing (skip the prompt with `-y`), and prints the next step (`loomo add`).
+- **`loomo add` — arrow-key directory browser.** When registering a project's roles you no longer type full paths: an ↑↓ browser lets you drill into folders and pick with Enter (or `✎` to type a path with Tab-completion), and the next role starts browsing near the last one. Falls back to plain input for non-interactive runs.
+- **`loomo adopt` — a real full-screen TUI.** Opens as its own program on the **alternate screen** (restores your terminal on exit, in or out of tmux). Projects are shown as sections from your config — running (`● `) or stopped (`○ `) — plus an `ungrouped` pool of live panes; ↑↓ to move, Enter on a pane to check it and on a `═session═` header to move the checked panes there (real `join-pane` + registration + convention, dirs auto-detected). **Mouse tracking** keeps scroll inside the view (your scrollback stays hidden), the **wheel scrolls the viewport** without moving the selection, and it **pages + reflows on terminal resize** (SIGWINCH). Flicker-free rendering (alt-screen + viewport + write-then-clear-EOL).
+
+### Changed
+- **Command rename (with aliases): `init` now means install, project setup is `add`.** The prerequisites installer is `loomo init` (was `loomo setup`), and registering a project is `loomo add` (was `loomo init`) — matching the mental model where `init` is the one-time initial setup and `add` is the repeatable per-project step. New flow: **`loomo init → loomo add → loomo up`**. The old names `setup` and the old `init` behaviour keep working as aliases where sensible, but note `loomo init` now installs prerequisites rather than starting the project wizard.
+- **`loomo add` no longer prompts for a hub.** Registering a project is now just session/roles/dirs/model + convention. Set up a hub (secretary) separately with `loomo hub` (create one) or `loomo adopt` (designate an existing session) — removing the redundant inline step.
+- **Internal: split the single script into modules.** `bin/tell` now holds only the session-to-session messaging core and command dispatch; commands, UI, pickers, and the adopt TUI live in `lib/` (`common`, `ui`, `workspace`, `adopt`, `completion`), sourced at startup. No behaviour change — purely maintainability.
+
 ## [1.2.0] - 2026-07-06
 
 ### Added
