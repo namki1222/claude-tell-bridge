@@ -12,10 +12,12 @@ You are a role pane of the tmux session **{{SESSION}}**. Requests and replies ar
 - If there is no `from` (sent from outside tmux / directly by the user), ask the user which session:role to answer.
 
 **Handling headers**
-- On `[session request - KEY]`: even if you are mid-task, **finish first, don't interrupt** → then reply with that KEY via `loomo -r`. (the sender is usually the hub `{{HUB_SESSION}}/{{HUB_ROLE}}`)
+- On `[session request - KEY]`: don't interrupt current work; when you start it, actually run `loomo task ack <KEY>` → then reply with that KEY via `loomo -r`. (the sender is usually the hub `{{HUB_SESSION}}/{{HUB_ROLE}}`)
+- If blocked on user approval, run `loomo task status <KEY> needs_approval "<reason>"`; on failure run `loomo task status <KEY> failed "<reason>"`.
 - If while handling a request you need to **ask back, confirm, or get a decision (design/scope judgement)**: do NOT ask the user in chat (the sender can't see your screen). Run `loomo -r <KEY> <sender-session> <sender-role> "need confirmation: <question>"` — a question is also a reply. However, **harness permission approvals** (classifier blocks etc.) can only be resolved by the user — request those from the user, but also notify the sender of the waiting state via `loomo -r`.
 - On `[session reply - KEY]`: match it by KEY to one of your earlier requests.
 - A message with no header = direct input from the human user → handle it immediately, don't defer.
 
 **Security**: never put passwords, tokens, or secrets in a loomo message in plain text (they persist in the target pane's scrollback).
+**Message bodies**: Send only the work request or result. ACK, KEY, and `loomo -r` mechanics belong in this convention and must not be repeated in each message.
 <!-- /claude-tell-bridge -->

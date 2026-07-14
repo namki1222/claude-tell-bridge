@@ -36,6 +36,13 @@
 
 너는 자연어로 말하면 되고, 조율은 세션들이 알아서 한다. 그리고 그 세션이 **Claude Code든 Codex든 상관없다** — 같은 브릿지 위에서 다 대화한다.
 
+loomo의 목표는 두 가지다:
+
+1. **세션 간 대화** — 프로젝트와 AI 모델이 달라도 Claude ↔ Claude, Codex ↔ Codex, Claude ↔ Codex가 직접 요청하고 응답한다.
+2. **누구나 쉽게** — tmux, session ID, 메시징 명령을 몰라도 대시보드에서 프로젝트와 패널을 만들고 자연어로 일을 맡길 수 있다.
+
+처음 쓰는 사람은 `loomo`만 실행하면 된다. 설치 확인부터 프로젝트·패널 구성, 기존 대화 가져오기, 재시작 후 대화 복원까지 화면에서 안내한다.
+
 <br>
 
 ```
@@ -55,7 +62,7 @@
 
 <br>
 
-각 세션은 **장수명**이다 — 그 프로젝트의 이력을 계속 들고 있는 상주 동료지, 작업마다 다 잊는 일회용 에이전트가 아니다.
+각 세션은 **장수명**이다 — 그 프로젝트의 이력을 계속 들고 있는 상주 동료지, 작업마다 다 잊는 일회용 에이전트가 아니다. session ID 저장과 복원은 loomo가 처리하므로 사용자가 직접 관리할 필요가 없다.
 
 <br>
 
@@ -67,12 +74,12 @@
 
 <br>
 
-**`loomo init`이 이걸 전부 설치해줍니다** — 설치 직후 실행하세요(이미 있는 건 건너뜁니다). 아래 표는 참고/수동 설치용입니다.
+**첫 `loomo` 실행이 이걸 전부 설치합니다.** 이미 있는 항목은 건너뜁니다.
 
 | 필요한 것 | 확인 | 비고 |
 |---|---|---|
-| **tmux** | `tmux -V` | 3.x 권장 · `loomo init` (또는 `brew install tmux`) |
-| **Claude Code 및/또는 Codex** | `claude --version` / `codex --version` | 각 패널의 AI — 섞어 써도 됨 · `loomo init`이 둘 다 설치 |
+| **tmux** | `tmux -V` | 3.x 권장 · 첫 `loomo` 실행이 설치 |
+| **Claude Code 및/또는 Codex** | `claude --version` / `codex --version` | 첫 `loomo` 실행이 둘 다 설치 |
 | **Node.js / npm** | `npm -v` | 설치 채널로만 (런타임은 순수 셸) |
 | macOS 또는 Linux | — | Windows는 WSL에서 동작 예상 (미검증) |
 
@@ -89,12 +96,10 @@
 ```bash
 npm install -g @namki1222/loomo
 
-loomo init          # 1단계 — 사전 요구사항 설치: tmux + Claude Code + Codex (있는 건 건너뜀)
-loomo doctor        # 2단계 — 환경 점검
-loomo add           # 3단계 — 팀 구성
+loomo               # Homebrew → tmux → Claude Code → Codex 확인/설치 후 대시보드 실행
 ```
 
-<sub>`loomo init`은 tmux(OS 패키지 매니저: `brew` / `apt` / `dnf` / `pacman` / `apk`)와 AI CLI(`@anthropic-ai/claude-code`, `@openai/codex`, npm)를 설치합니다. 멱등이라 이미 있는 건 건너뛰므로 언제 실행해도 안전하며, 설치 직후 첫 단계로 권장합니다.</sub>
+<sub>첫 `loomo` 실행은 이미 설치된 항목을 건너뜁니다. macOS에서 Homebrew가 없으면 공식 대화형 설치 프로그램부터 실행합니다.</sub>
 
 <sub>1.1 이전의 한국어 헤더 세팅을 쓰고 있다면 `export LOOMO_LANG=ko` 한 줄로 기존 프로토콜이 그대로 유지됩니다.</sub>
 
@@ -104,31 +109,45 @@ loomo add           # 3단계 — 팀 구성
 
 <br>
 
-## 팀 구성
+## 초보자를 위한 대시보드 사용법
 
 <br>
 
-```bash
-loomo add
-```
+터미널에서 `loomo`를 실행하면 대시보드가 열린다. 대부분의 작업은 여기서 마우스로 처리할 수 있다.
 
 <br>
 
-마법사가 순서대로 묻는다:
+### Sessions
 
-<br>
+- `[＋ Add project]`를 누르고 Claude/Codex → 프로젝트 이름 → 첫 패널 역할 → 폴더를 선택한다.
+- 프로젝트를 한 번 클릭하면 패널과 레이아웃을 관리하는 상세 화면이 열린다.
+- 상세 화면의 `Add unassigned panel` → `[＋ New panel]`에서 새 패널을 현재 프로젝트에 바로 추가한다.
+- 프로젝트를 더블클릭하면 전용 터미널에서 모든 패널이 열린다.
+- `Edit arrangement`에서는 미배정 패널을 프로젝트에 넣거나 기존 패널을 다른 프로젝트로 옮긴다.
 
-- **1 · 기본 AI 모델** — `claude` 또는 `codex`. 세션마다 다르게도 지정할 수 있어서, Claude와 Codex가 한 화면을 공유한다.
+### Adopt
 
-- **2 · 프로젝트** — 각각: **프로젝트 이름(=세션)** → **역할(=패널)** → **디렉터리**(화살표 브라우저 — 풀 경로 타이핑 없음) → **모델**(엔터=기본). 역할은 여러 개.
+- 기존에 사용하던 Claude/Codex 대화를 내용 미리보기로 확인한다.
+- 가져올 대화를 선택하고 패널 이름을 정하면 **Unassigned panels**에 들어간다.
+- 이미 loomo가 관리하는 대화는 Adopt 목록에 다시 나타나지 않는다.
 
-<br>
+### Settings
 
-<sub>허브(비서) 세션이 필요하면 `loomo hub`(새로 생성) 또는 `loomo adopt`(기존 세션 지정)로 따로 설정한다.</sub>
+- 전체 요청을 라우팅할 Hub session을 지정한다.
+- Claude/Codex 로그인 상태를 확인하고 인증을 시작하거나 해제한다.
+- 환경 상태와 사용량을 확인한다.
+
+한 프로젝트는 하나의 tmux 세션이고, 역할 하나는 그 안의 AI 패널 하나다. 프로젝트 하나에 Claude와 Codex 패널을 함께 둘 수 있다.
 
 <br>
 
 이때 각 디렉터리의 규약 파일(`CLAUDE.md` 또는 `AGENTS.md`)에 협업 규약이 삽입된다 — 받는 쪽 AI가 브릿지로 응답하는 근거다.
+
+### 대화 복원
+
+loomo는 각 패널의 Claude/Codex session ID를 저장한다. 목록의 대화 미리보기와 실제 재개가 같은 ID를 사용하므로 `loomo restart` 후에도 같은 대화가 열린다. 실행 중 설정에는 있지만 tmux에서 빠진 패널은 세션을 열거나 `loomo up`을 실행할 때 자동 복구된다.
+
+Adopt에는 loomo가 이미 소유하거나 배정한 대화가 아니라, 아직 연결되지 않은 외부 대화만 표시된다.
 
 <br>
 
@@ -136,21 +155,63 @@ loomo add
 
 <br>
 
-## 실행 & 대화
+## 터미널 명령어 사용법
 
-<br>
+대시보드 없이 빠르게 실행하거나 스크립트에서 자동화할 때 사용한다. 처음 쓰는 사람은 이 명령들을 외울 필요가 없다.
+
+### 시작과 접속
 
 ```bash
-loomo up --all      # 전체 세션 켜기(패널 분할 + AI 실행), 허브로 접속
-
-loomo up <프로젝트>  # 또는 하나만
-
-loomo list          # 지금 말 걸 수 있는 상대
+loomo up <프로젝트>    # 프로젝트 시작
+loomo up --all         # 등록된 프로젝트 모두 시작
+loomo ws <프로젝트>    # 프로젝트 시작 후 현재 터미널에서 접속
+loomo down <프로젝트>  # 프로젝트 종료, 설정은 유지
+loomo down --all       # 모든 프로젝트 종료
 ```
+
+### 구성과 관리
+
+```bash
+loomo add                         # 터미널 마법사로 프로젝트 등록
+loomo adopt                       # 기존 Claude/Codex 대화 가져오기
+loomo hub                         # Hub session 등록
+loomo layout <프로젝트> tiled      # 패널 레이아웃 변경
+loomo list                        # 세션·역할·실행 상태 확인
+loomo rm <프로젝트>               # 프로젝트 설정 제거
+```
+
+### 복구와 진단
+
+```bash
+loomo restart          # 전용 tmux 재시작 후 저장된 패널·대화 복원
+loomo doctor           # 환경과 설정 점검
+loomo doctor --fix     # 안전하게 자동 복구 가능한 문제 수정
+loomo sync             # CLAUDE.md/AGENTS.md 협업 규약 갱신
+loomo tmux status      # loomo 전용 tmux 상태 확인
+loomo update           # 최신 npm 버전으로 업데이트
+```
+
+### 세션 간 요청 상태
+
+```bash
+loomo task list
+loomo task ack <KEY>
+loomo task status <KEY> <상태> "요약"
+```
+
+세션끼리 메시지를 보낼 때는 `tell <세션> <역할> "요청"`을 사용한다. 하지만 일반 사용자는 직접 입력하지 않고 AI에게 자연어로 부탁하면 된다.
 
 <br>
 
-그다음 아무 패널의 AI에게 자연어로 부탁한다:
+---
+
+<br>
+
+## 세션끼리 대화하기
+
+<br>
+
+대시보드에서 프로젝트를 더블클릭해 연 다음, 아무 패널의 AI에게 자연어로 부탁한다:
 
 <br>
 
@@ -170,35 +231,16 @@ web한테 주문 스키마 바뀐 거 알려주고 UI 반영시켜줘
 
 <br>
 
-## 명령어
+## 알아두면 좋은 동작
 
 <br>
 
-네가 쓰는 건 관리 명령이 전부다 — 몇 개 안 된다. 세션끼리의 메시징은 규약대로 AI가 알아서 실행하니 사람이 칠 일이 없다.
-
-<br>
-
-| 명령 | 설명 |
-|---|---|
-| `loomo up --all` \| `up <세션>` | 전체 켜기(→허브 접속) / 하나 · 인자 없는 `up`은 목록 안내 |
-| `loomo down <세션>` \| `--all` | 끄기 — 세션 종료만, 설정 유지 |
-| `loomo ws <세션>` | 하나 켜고 접속 |
-| `loomo layout [<세션>] <프리셋>` | 패널 배치(`tiled` / `main-vertical` / …), `tmux.conf` 불필요 |
-| `loomo init` | 사전 요구사항 설치 — tmux + Claude Code + Codex (있는 건 건너뜀) |
-| `loomo add` | 프로젝트 등록 — 세션·역할·디렉터리·모델 + 규약 |
-| `loomo adopt` | 이미 쓰던 AI 편입 — 재시작 없이 |
-| `loomo hub` | 관리자(허브) 세션 등록 — 하나만 |
-| `loomo list` | 주소록 — 말 걸 수 있는 상대 + 상태 |
-| `loomo rm <세션>` | 워크스페이스 삭제 — 설정+규약 제거, 프로젝트 파일 무손상 |
-| `loomo doctor` · `completion` · `help` | 환경 점검 · 셸 자동완성 · 전체 도움말 |
-
-<br>
-
-탭 자동완성(선택):
-
-```bash
-echo 'eval "$(loomo completion)"' >> ~/.zshrc
-```
+- 목록에서 프로젝트를 **한 번 클릭**하면 상세 화면, **더블클릭**하면 세션 터미널이 열린다.
+- 패널명과 경로는 한 묶음으로 선택되며, 폴더는 브라우저에서 이동해 고를 수 있다.
+- 설정에 등록됐지만 실행 중 빠진 패널은 세션을 열 때 자동 복구된다.
+- 대화 미리보기와 실제 실행은 같은 session ID를 사용한다.
+- 프로젝트를 멈추거나 loomo를 재시작해도 설정과 대화 연결은 유지된다.
+- 세션 간 요청은 KEY로 추적되며, Hub가 있으면 적절한 프로젝트로 라우팅하고 결과를 모아준다.
 
 <br>
 
@@ -212,7 +254,7 @@ echo 'eval "$(loomo completion)"' >> ~/.zshrc
 
 브릿지는 에이전트 무관이라, **Claude로 도는 허브가 Codex로 도는 프로젝트를 지휘**할 수 있다 — 반대도 된다.
 
-모델은 `loomo add`에서(또는 `~/.config/loomo/workspaces.conf`의 5번째 필드로) 세션별로 지정한다:
+프로젝트나 패널을 만들 때 대시보드에서 Claude 또는 Codex를 먼저 선택한다. 한 프로젝트 안에서도 패널마다 다른 모델을 사용할 수 있다:
 
 <br>
 

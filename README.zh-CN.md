@@ -67,12 +67,12 @@
 
 <br>
 
-**`loomo init` 会为你安装以下全部内容** —— 安装后立即运行（已存在的会自动跳过）。下表仅供参考 / 手动安装。
+**首次运行 `loomo` 会安装以下全部内容。** 已安装的项目会自动跳过。
 
 | 需要 | 检查 | 说明 |
 |---|---|---|
-| **tmux** | `tmux -V` | 建议 3.x · `loomo init`（或 `brew install tmux`） |
-| **Claude Code 和/或 Codex** | `claude --version` / `codex --version` | 每个窗格里的 AI —— 可自由混用 · `loomo init` 两者都装 |
+| **tmux** | `tmux -V` | 建议 3.x · 首次运行 `loomo` 时安装 |
+| **Claude Code 和/或 Codex** | `claude --version` / `codex --version` | 首次运行 `loomo` 时安装两者 |
 | **Node.js / npm** | `npm -v` | 仅作安装渠道（运行时是纯 shell） |
 | macOS 或 Linux | — | Windows 预期可在 WSL 下运行（未验证） |
 
@@ -89,12 +89,10 @@
 ```bash
 npm install -g @namki1222/loomo
 
-loomo init          # 第 1 步 —— 安装前置依赖：tmux + Claude Code + Codex（已存在则跳过）
-loomo doctor        # 第 2 步 —— 检查环境
-loomo add           # 第 3 步 —— 组建团队
+loomo               # 检查/安装 Homebrew → tmux → Claude Code → Codex，然后打开仪表盘
 ```
 
-<sub>`loomo init` 通过系统包管理器（`brew` / `apt` / `dnf` / `pacman` / `apk`）安装 tmux，并通过 npm 安装 AI CLI（`@anthropic-ai/claude-code`、`@openai/codex`）。它是幂等的 —— 已安装的会跳过 —— 因此随时运行都安全，推荐作为安装后的第一步。</sub>
+<sub>首次运行 `loomo` 会跳过已安装的项目。在 macOS 上，如果缺少 Homebrew，将先运行其官方交互式安装程序。</sub>
 
 <sub>从 1.1 之前的韩语协议头升级？`export LOOMO_LANG=ko` 可保持原有协议头不变。</sub>
 
@@ -184,12 +182,12 @@ loomo list          # 现在你能对话的对象
 | `loomo down <会话>` \| `--all` | 停止 —— 仅终止会话，保留配置 |
 | `loomo ws <会话>` | 启动一个并接入 |
 | `loomo layout [<会话>] <预设>` | 重排窗格（`tiled` / `main-vertical` / …），无需 `tmux.conf` |
-| `loomo init` | 安装前置依赖 —— tmux + Claude Code + Codex（已存在则跳过） |
 | `loomo add` | 注册项目 —— 会话·角色·目录·模型 + 约定 |
 | `loomo adopt` | 接入已在运行的 AI —— 无需重启 |
 | `loomo hub` | 注册管理（中枢）会话 —— 只允许一个 |
 | `loomo list` | 通讯录 —— 可对话对象 + 状态 |
 | `loomo rm <会话>` | 删除工作区 —— 移除配置+约定，项目文件不受影响 |
+| `loomo update` | 更新到 npm 上的最新 loomo 版本 |
 | `loomo doctor` · `completion` · `help` | 环境检查 · Shell 补全 · 完整帮助 |
 
 <br>

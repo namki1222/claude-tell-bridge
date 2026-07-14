@@ -3,6 +3,18 @@
 All notable changes to this project are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/); this project follows [SemVer](https://semver.org/).
 
+## [2.0.3] - 2026-07-14
+
+### Added
+- **`loomo update` self-update command.** Checks the latest npm release, skips work when already current, and installs the new version using the existing global prefix or the permission-free `~/.local` fallback. It also supports a one-time `npx` migration for legacy system-owned installations, while source checkouts are detected and left untouched.
+
+## [2.0.2] - 2026-07-13
+
+### Fixed
+- **First-run dependency installation no longer fails with npm `EACCES`.** When the global npm prefix is not writable, bare `loomo` installs Claude Code and Codex under `~/.local`, adds `~/.local/bin` to the current `PATH`, and persists it in the user's shell profile. No `sudo`, password handling, or npm permission knowledge is required.
+- **Running bare `loomo` now owns the complete startup flow.** It checks and installs Homebrew, tmux, Claude Code, and Codex in that order, then opens the dashboard. The separate `loomo init` and `loomo setup` commands were removed.
+- **macOS bootstrap now installs Homebrew when needed.** Loomo runs Homebrew's official interactive installer, detects the Apple Silicon or Intel prefix, persists `brew shellenv`, and then continues with tmux installation. Any one-time macOS administrator approval remains entirely inside the official Homebrew installer.
+
 ## [1.4.0] - 2026-07-13
 
 ### Added

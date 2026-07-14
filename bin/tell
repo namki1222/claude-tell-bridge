@@ -5,7 +5,6 @@
 #   loomo <session> <role> "<msg>"          send a request (6-char correlation KEY auto-issued)
 #   loomo -r <KEY> <session> <role> "<msg>" send a reply (reuse the KEY you received)
 # Management (what humans run):
-#   loomo init                 install prerequisites — tmux + Claude Code + Codex (skips present)
 #   loomo ws [<session>]        bootstrap/attach a workspace (config: workspaces.conf)
 #   loomo up <session>|--all    start one / all (attach hub) · bare `up` lists what to start
 #   loomo down <session>|--all  stop — kill session only, config kept
@@ -15,7 +14,7 @@
 #   loomo hub                   register the manager (hub) session — only one system-wide
 #   loomo list                  address book — who you can talk to + convention status
 #   loomo rm <session>          delete workspace — kill + config + convention block removed
-#   loomo doctor | completion | help
+#   loomo task | doctor | completion | help
 #
 # How it works:
 #   - target = tmux "session name" + "pane title (= role)"; messages are typed into the
@@ -41,7 +40,26 @@ if [ -z "$CONFIG_DIR" ]; then
   fi
 fi
 WS_CONF="$CONFIG_DIR/workspaces.conf"
+SESSION_CONF="$CONFIG_DIR/sessions.conf" # project registry; keeps zero-panel sessions visible
 HUB_FILE="$CONFIG_DIR/hub"   # hub pointer 'session|role' — only one hub system-wide
+PENDING_FILE="$CONFIG_DIR/pending.tsv" # timestamp, KEY, target, sender; cleared on first reply
+TASK_FILE="$CONFIG_DIR/tasks.tsv" # append-only task lifecycle; latest event per KEY is current state
+
+# The dashboard reads one character at a time. In a C/POSIX locale Bash reads
+# UTF-8 as separate bytes, which turns Korean and other non-ASCII input into ?.
+# Keep an existing UTF-8 locale; otherwise select one installed on this machine.
+ensure_utf8_locale() {
+  local current="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" candidate="" available
+  case "$current" in *[Uu][Tt][Ff]*8*) return 0 ;; esac
+  available=$(locale -a 2>/dev/null || true)
+  for candidate in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8 ko_KR.UTF-8 ko_KR.utf8; do
+    printf '%s\n' "$available" | grep -qx "$candidate" || continue
+    export LANG="$candidate" LC_CTYPE="$candidate" LC_ALL="$candidate"
+    return 0
+  done
+  return 1
+}
+LOOMO_UTF8_READY=0; ensure_utf8_locale && LOOMO_UTF8_READY=1
 
 # ── Language ──────────────────────────────────────────────────────────────────
 # LOOMO_LANG=ko keeps the Korean protocol headers & convention templates
@@ -69,17 +87,28 @@ agent_of() { # $1=세션 $2=역할 → 그 패널의 에이전트(conf 5번째 �
   printf '%s' "${a:-$TELL_AGENT}"
 }
 
-agent_launch() { # $1=에이전트  $2=resume_id(선택) → 패널에서 실행할 명령. exec로 셸 대체(종료 시 패널 정리)
-  local ag="${1:-claude}" rid="${2:-}"
-  # codex: tell 통신은 tmux 소켓(다른 세션 조회/주입)을 쓰므로 sandbox를 풀어야 함 — 기본 sandbox는 이를 차단
-  local cx_opt="--sandbox danger-full-access"
+agent_launch() { # agent resume_id session role dir → 패널에서 실행할 명령
+  local ag="${1:-claude}" rid="${2:-}" session="${3:-}" role="${4:-}" dir="${5:-$PWD}"
+  # New loomo panes start in auto mode so delegated work does not stop at an
+  # unattended approval prompt. Set LOOMO_AUTO_MODE=0 to restore CLI defaults.
+  local auto="${LOOMO_AUTO_MODE:-1}" cx_opt="--sandbox danger-full-access" cl_opt=""
+  if [ "$auto" != 0 ]; then
+    cl_opt="--permission-mode auto"
+    cx_opt="$cx_opt --ask-for-approval never"
+  fi
   if [ -n "$rid" ]; then
     case "$ag" in
       codex) printf 'exec codex %s resume %s' "$cx_opt" "$rid" ;;   # codex: 서브커맨드
-      *)     printf 'exec claude --resume %s' "$rid" ;;             # claude: 플래그
+      *)     printf 'exec claude %s --resume %s' "$cl_opt" "$rid" ;; # claude: 플래그
     esac
   else
-    case "$ag" in codex) printf 'exec codex %s' "$cx_opt" ;; *) printf 'exec claude' ;; esac
+    # A fresh CLI chooses a conversation ID only after launch. Route it through
+    # loomo so that ID is persisted and restart/list/adopt all use one identity.
+    local es er ed
+    es=$(printf '%s' "$session" | base64 | tr -d '\r\n')
+    er=$(printf '%s' "$role" | base64 | tr -d '\r\n')
+    ed=$(printf '%s' "$dir" | base64 | tr -d '\r\n')
+    printf 'exec %q __agent64 %q %q %q %q' "$0" "$ag" "$es" "$er" "$ed"
   fi
 }
 
@@ -97,6 +126,38 @@ SELF_DIR=$(resolve_self)
 TEMPLATE_DIR="$SELF_DIR/../templates"
 BRAND="${TELL_BRAND:-loomo}"   # 브랜드명 (배너/도움말) — AGENT_LABEL은 load_agent_profile이 설정
 
+# tmux isolation: new installs use a loomo-only server; existing installs stay
+# legacy until `loomo tmux dedicated` so live conversations are never killed.
+TMUX_BIN=$(command -v tmux 2>/dev/null || true)
+TMUX_MODE_FILE="$CONFIG_DIR/tmux-mode"
+LOOMO_TMUX_MODE="${LOOMO_TMUX_MODE:-}"
+if [ -z "$LOOMO_TMUX_MODE" ]; then
+  if [ -f "$TMUX_MODE_FILE" ]; then read -r LOOMO_TMUX_MODE < "$TMUX_MODE_FILE"
+  elif [ -f "$WS_CONF" ] || [ -f "$SESSION_CONF" ]; then LOOMO_TMUX_MODE=legacy
+  else LOOMO_TMUX_MODE=dedicated
+  fi
+fi
+case "$LOOMO_TMUX_MODE" in dedicated|legacy) ;; *) LOOMO_TMUX_MODE=legacy ;; esac
+# Persist first-run choice so adding the first project cannot accidentally flip
+# a new installation back to legacy mode on the next invocation.
+if [ ! -f "$TMUX_MODE_FILE" ] && [ -z "${TELL_NO_STATE_WRITE:-}" ]; then
+  mkdir -p "$CONFIG_DIR" 2>/dev/null && printf '%s\n' "$LOOMO_TMUX_MODE" > "$TMUX_MODE_FILE" 2>/dev/null || true
+fi
+LOOMO_TMUX_SOCKET="${LOOMO_TMUX_SOCKET:-loomo}"
+LOOMO_TMUX_CONF="$TEMPLATE_DIR/tmux.conf"
+tmux() {
+  [ -n "$TMUX_BIN" ] || return 127
+  if [ "$LOOMO_TMUX_MODE" = dedicated ]; then command "$TMUX_BIN" -L "$LOOMO_TMUX_SOCKET" -f "$LOOMO_TMUX_CONF" "$@"
+  else command "$TMUX_BIN" "$@"; fi
+}
+inside_loomo_tmux() {
+  [ -n "${TMUX:-}" ] || return 1
+  [ "$LOOMO_TMUX_MODE" = legacy ] && return 0
+  local current_socket="${TMUX%%,*}" private_socket
+  private_socket=$(tmux display-message -p '#{socket_path}' 2>/dev/null) || return 1
+  [ "$current_socket" = "$private_socket" ]
+}
+
 # ── CLI UI 킷 (컬러는 TTY에서만, NO_COLOR 존중) ────────────────────────────────
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   C_B=$'\033[1m'; C_D=$'\033[2m'; C_C=$'\033[36m'; C_G=$'\033[32m'; C_Y=$'\033[33m'; C_R=$'\033[31m'; C_X=$'\033[0m'
@@ -109,7 +170,7 @@ fi
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-# ── setup: 사전 요구사항 자동 설치 (tmux + Claude Code + Codex) ──────────────────
+# ── first-run bootstrap: Homebrew/tmux + Claude Code + Codex ───────────────────
 
 
 
@@ -144,26 +205,31 @@ fi
 
 
 # ── load command/UI modules (functions live in lib/) ──
-for _lib in common ui workspace adopt completion; do
+for _lib in common ui tasks workspace adopt completion home; do
   . "$SELF_DIR/../lib/$_lib.sh" || { echo "loomo: missing lib/$_lib.sh — reinstall: npm i -g @namki1222/loomo" >&2; exit 1; }
 done
 
 case "${1:-}" in
-  init)   shift; cmd_init "$@";  exit $? ;;
+  __agent) shift; cmd_agent_entry "$@"; exit $? ;;
+  __agent64) shift; cmd_agent_entry_encoded "$@"; exit $? ;;
   add)    shift; cmd_add "$@";   exit $? ;;
-  setup)  shift; cmd_init "$@";  exit $? ;;   # alias of init (backward compat)
   adopt)  shift; cmd_adopt "$@";  exit $? ;;
   hub)    shift; cmd_hub "$@";    exit $? ;;
   up)     shift; cmd_up "$@";     exit $? ;;
   down)   shift; cmd_down "$@";   exit $? ;;
   layout) shift; cmd_layout "$@"; exit $? ;;
   completion) shift; cmd_completion; exit $? ;;
+  update) shift; cmd_update "$@"; exit $? ;;
+  restart) shift; cmd_restart "$@"; exit $? ;;
+  task)   shift; cmd_task "$@";   exit $? ;;
+  sync)   shift; cmd_sync "$@";   exit $? ;;
+  tmux)   shift; cmd_tmux_mode "$@"; exit $? ;;
   help|--help|-h) cmd_help;       exit 0 ;;
-  "")     cmd_help;               exit 2 ;;   # 인자 없이 실행 → 도움말
+  "")     cmd_home;               exit $? ;;   # 인자 없이 실행 → 대시보드 TUI
   list)   shift; cmd_list;        exit $? ;;
   rm)     shift; cmd_rm "${1:-}"; exit $? ;;
   ws)     shift; cmd_ws "${1:-}"; exit $? ;;
-  doctor) shift; cmd_doctor;      exit $? ;;
+  doctor) shift; cmd_doctor "$@"; exit $? ;;
 esac
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -197,7 +263,7 @@ load_agent_profile "$(agent_of "$SESSION" "$ROLE")"
 
 # 발신자(세션/역할) 자동 감지 — 받는 쪽이 '어디로 tell -r 할지' 알게 하는 핵심
 SRC=""
-if [ -n "${TMUX_PANE:-}" ]; then
+if [ -n "${TMUX_PANE:-}" ] && inside_loomo_tmux; then
   src_ses=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
   src_role=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_title}' 2>/dev/null)
   [ -n "$src_ses" ] && [ -n "$src_role" ] && SRC=" from ${src_ses}/${src_role}"
@@ -242,8 +308,19 @@ if tmux capture-pane -t "$PANE" -p 2>/dev/null | grep -qF "$AGENT_PROMPT $head";
 fi
 
 if [ "$REPLY" = "1" ]; then
+  if _task_known "$KEY" 2>/dev/null; then
+    task_event "$KEY" completed "$TASK_TARGET_SESSION" "$TASK_TARGET_ROLE" "$TASK_SENDER_SESSION" "$TASK_SENDER_ROLE" "reply received"
+  fi
+  if [ -f "$PENDING_FILE" ]; then
+    pending_tmp=$(mktemp)
+    LC_ALL=C awk -F'\t' -v k="$KEY" '$2!=k' "$PENDING_FILE" > "$pending_tmp" && mv "$pending_tmp" "$PENDING_FILE"
+  fi
   echo "[tell] reply sent → $SESSION:$ROLE ($PANE)  (KEY=$KEY)"
 else
+  mkdir -p "$CONFIG_DIR"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$KEY" "$SESSION" "$ROLE" "${src_ses:-}" "${src_role:-}" >> "$PENDING_FILE"
+  task_event "$KEY" delivered "$SESSION" "$ROLE" "${src_ses:-}" "${src_role:-}" "${MSG#*] }" \
+    || echo "[tell] warning: request was sent but Task Center state could not be saved" >&2
   echo "[tell] request sent → $SESSION:$ROLE ($PANE)"
   echo "[tell] KEY=$KEY  ← watch for [$HDR_REP - $KEY]"
 fi

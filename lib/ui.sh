@@ -1,9 +1,22 @@
 # loomo — interactive pickers & terminal helpers
 # sourced by bin/tell (not standalone). shell: bash
 
+_applescript_escape() { # shell command on stdin-like arg -> APPLESCRIPT_TEXT
+  APPLESCRIPT_TEXT=${1//\\/\\\\}
+  APPLESCRIPT_TEXT=${APPLESCRIPT_TEXT//\"/\\\"}
+}
+
+_dark_terminal_command() { # $1=shell command -> DARK_COMMAND (terminal-local colors)
+  DARK_COMMAND="printf '\\033]10;#f2f2f2\\007\\033]11;#000000\\007'; $1"
+}
+
 open_terminal_tab() { # $1=세션 — macOS 터미널 앱에 그 세션으로 접속하는 탭/창을 연다
   # 작은따옴표: AppleScript 문자열(큰따옴표)과 충돌하지 않게
-  local cmd="tmux attach -t '=$1'"
+  local cmd
+  if [ "$LOOMO_TMUX_MODE" = dedicated ]; then printf -v cmd "%q -L %q -f %q attach -t '=%s'" "$TMUX_BIN" "$LOOMO_TMUX_SOCKET" "$LOOMO_TMUX_CONF" "$1"
+  else printf -v cmd "%q attach -t '=%s'" "$TMUX_BIN" "$1"; fi
+  _dark_terminal_command "$cmd"; cmd="$DARK_COMMAND"
+  _applescript_escape "$cmd"; local apple_cmd="$APPLESCRIPT_TEXT"
   [ "$(uname)" = "Darwin" ] || { warn "--tabs is macOS-only"; return 1; }
   if [ "${TERM_PROGRAM:-}" = "iTerm.app" ] || osascript -e 'application "iTerm2" is running' 2>/dev/null | grep -q true; then
     osascript >/dev/null <<EOF
@@ -14,7 +27,7 @@ tell application "iTerm2"
   else
     tell current window to create tab with default profile
   end if
-  tell current session of current window to write text "$cmd"
+  tell current session of current window to write text "$apple_cmd"
 end tell
 EOF
   else
@@ -23,7 +36,7 @@ EOF
 tell application "Terminal" to activate
 tell application "System Events" to keystroke "t" using command down
 delay 0.3
-tell application "Terminal" to do script "$cmd" in selected tab of front window
+tell application "Terminal" to do script "$apple_cmd" in selected tab of front window
 EOF
     then :; else
       if [ "${TERMTAB_WARNED:-0}" = "0" ]; then
@@ -35,11 +48,81 @@ EOF
       osascript >/dev/null <<EOF
 tell application "Terminal"
   activate
-  do script "$cmd"
+  do script "$apple_cmd"
 end tell
 EOF
     fi
   fi
+}
+
+open_terminal_window() { # $1=session — open a dedicated terminal window attached to it
+  local cmd output rc terminal
+  if [ "$LOOMO_TMUX_MODE" = dedicated ]; then printf -v cmd "%q -L %q -f %q attach -t '=%s'" "$TMUX_BIN" "$LOOMO_TMUX_SOCKET" "$LOOMO_TMUX_CONF" "$1"
+  else printf -v cmd "%q attach -t '=%s'" "$TMUX_BIN" "$1"; fi
+  _dark_terminal_command "$cmd"; cmd="$DARK_COMMAND"
+  _applescript_escape "$cmd"; local apple_cmd="$APPLESCRIPT_TEXT"
+  loomo_log INFO terminal.open.begin "session=$1" "mode=$LOOMO_TMUX_MODE" "command=$cmd"
+  if [ "$(uname)" = "Darwin" ]; then
+    if [ "${TERM_PROGRAM:-}" = "iTerm.app" ] || osascript -e 'application "iTerm2" is running' 2>/dev/null | grep -q true; then
+      terminal=iTerm2
+      output=$(osascript 2>&1 <<EOF
+tell application "iTerm2"
+  activate
+  set newWindow to (create window with default profile)
+  tell current session of newWindow to write text "$apple_cmd"
+end tell
+EOF
+      ); rc=$?
+    else
+      terminal=Terminal
+      output=$(osascript 2>&1 <<EOF
+tell application "Terminal"
+  activate
+  do script "$apple_cmd"
+end tell
+EOF
+      ); rc=$?
+    fi
+  elif command -v x-terminal-emulator >/dev/null 2>&1; then
+    terminal=x-terminal-emulator
+    x-terminal-emulator -e sh -lc "$cmd" >/dev/null 2>&1 &
+    rc=$?
+  else
+    loomo_log ERROR terminal.open.unsupported "session=$1" "os=$(uname)"
+    return 1
+  fi
+  if [ "${rc:-1}" -eq 0 ]; then
+    loomo_log INFO terminal.open.ok "session=$1" "terminal=$terminal"
+  else
+    loomo_log ERROR terminal.open.failed "session=$1" "terminal=$terminal" "rc=${rc:-1}" "error=${output:-unknown}"
+  fi
+  return "${rc:-1}"
+}
+
+open_terminal_command() { # $1=fixed command — open it in a dedicated terminal window
+  local cmd="$1"
+  _dark_terminal_command "$cmd"; cmd="$DARK_COMMAND"
+  _applescript_escape "$cmd"; local apple_cmd="$APPLESCRIPT_TEXT"
+  if [ "$(uname)" = "Darwin" ]; then
+    if [ "${TERM_PROGRAM:-}" = "iTerm.app" ] || osascript -e 'application "iTerm2" is running' 2>/dev/null | grep -q true; then
+      osascript >/dev/null <<EOF
+tell application "iTerm2"
+  activate
+  set newWindow to (create window with default profile)
+  tell current session of newWindow to write text "$apple_cmd"
+end tell
+EOF
+    else
+      osascript >/dev/null <<EOF
+tell application "Terminal"
+  activate
+  do script "$apple_cmd"
+end tell
+EOF
+    fi
+  elif command -v x-terminal-emulator >/dev/null 2>&1; then
+    x-terminal-emulator -e sh -lc "$cmd" >/dev/null 2>&1 &
+  else return 1; fi
 }
 
 pick_menu() { # $1=옵션들(개행 구분) → PICKED / PICK_IDX 설정. ↑↓ 이동·Enter 선택·Ctrl-C 취소(→130). TTY 전용
@@ -132,7 +215,9 @@ _pick_dir() { # 대화형 디렉터리 브라우저 → 전역 PICKED_DIR (취�
     local subs=() opts=() d
     for d in "$cur"/*/; do [ -d "$d" ] || continue; d=${d%/}; subs[${#subs[@]}]="${d##*/}"; done
     opts=("✓ 여기를 선택  →  $cur" "⬆  상위 폴더로" "✎  경로 직접 입력 (Tab 자동완성)")
-    for d in "${subs[@]}"; do opts[${#opts[@]}]="📁 $d/"; done
+    if [ "${#subs[@]}" -gt 0 ]; then
+      for d in "${subs[@]}"; do opts[${#opts[@]}]="📁 $d/"; done
+    fi
     pick_menu <<EOF
 $(printf '%s\n' "${opts[@]}")
 EOF

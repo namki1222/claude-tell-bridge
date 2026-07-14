@@ -16,15 +16,21 @@ _tell_conf() {
   fi
   printf '%s' "$d/workspaces.conf"
 }
+_tell_tmux() {
+  local conf mode
+  conf=$(_tell_conf); mode=$(dirname "$conf")/tmux-mode
+  if { [ -f "$mode" ] && [ "$(cat "$mode" 2>/dev/null)" = dedicated ]; } || { [ ! -f "$mode" ] && [ ! -f "$conf" ]; }; then command tmux -L "${LOOMO_TMUX_SOCKET:-loomo}" "$@"
+  else command tmux "$@"; fi
+}
 _tell_sessions() {
   local conf; conf=$(_tell_conf)
-  { tmux list-sessions -F '#{session_name}' 2>/dev/null
+  { _tell_tmux list-sessions -F '#{session_name}' 2>/dev/null
     [ -f "$conf" ] && grep -vE '^[[:space:]]*(#|$)' "$conf" | cut -d'|' -f1
   } | sort -u
 }
 _tell_roles() { # $1=세션 — 떠 있는 패널 제목 + 설정된 역할
   local conf; conf=$(_tell_conf)
-  { tmux list-panes -t "=$1" -F '#{pane_title}' 2>/dev/null
+  { _tell_tmux list-panes -t "=$1" -F '#{pane_title}' 2>/dev/null
     [ -f "$conf" ] && LC_ALL=C awk -F'|' -v s="$1" '$1==s{print $2}' "$conf"
   } | sort -u
 }
@@ -35,14 +41,17 @@ _tell() {
   COMPREPLY=()
   local LAYOUTS="tiled main-vertical main-horizontal even-horizontal even-vertical"
   if [ "$pos" -eq 1 ]; then
-    COMPREPLY=($(compgen -W "$(_tell_sessions) init add adopt hub up down layout ws list rm doctor completion help setup -r" -- "$cur"))
+    COMPREPLY=($(compgen -W "$(_tell_sessions) add adopt hub up down layout ws list rm task sync tmux doctor completion update restart help -r" -- "$cur"))
   elif [ "$pos" -eq 2 ]; then
     case "$first" in
       ws|rm) COMPREPLY=($(compgen -W "$(_tell_sessions)" -- "$cur")) ;;
       up) COMPREPLY=($(compgen -W "$(_tell_sessions) --all --tabs" -- "$cur")) ;;
       down) COMPREPLY=($(compgen -W "$(_tell_sessions) --all" -- "$cur")) ;;
       layout) COMPREPLY=($(compgen -W "$(_tell_sessions) $LAYOUTS" -- "$cur")) ;;
-      init|add|setup|adopt|hub|list|doctor|completion|help|-r) ;;
+      task) COMPREPLY=($(compgen -W "list ack status" -- "$cur")) ;;
+      tmux) COMPREPLY=($(compgen -W "status dedicated legacy" -- "$cur")) ;;
+      doctor) COMPREPLY=($(compgen -W "--fix" -- "$cur")) ;;
+      add|adopt|hub|list|sync|completion|update|restart|help|-r) ;;
       *) COMPREPLY=($(compgen -W "$(_tell_roles "$first")" -- "$cur")) ;;
     esac
   elif [ "$pos" -eq 3 ] && [ "$first" = "layout" ]; then

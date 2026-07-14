@@ -2,7 +2,7 @@
 # sourced by bin/tell (not standalone). shell: bash
 
 cmd_adopt() {  # TTY → 대체화면 전체화면 프로그램(_adopt_interactive) · non-TTY → legacy sequential
-  command -v tmux >/dev/null 2>&1 || { warn "tmux missing"; exit 1; }
+  type -P tmux >/dev/null 2>&1 || { warn "tmux missing"; exit 1; }
   mkdir -p "$CONFIG_DIR"
   if [ -t 0 ] && [ -t 1 ] && { : </dev/tty; } 2>/dev/null; then _adopt_interactive; return $?; fi
   _adopt_legacy
@@ -132,7 +132,7 @@ EOF
                   [ "$sses" = "$tgt" ] && continue
                   if [ -n "$spid" ]; then
                     tmux has-session -t "=$tgt" 2>/dev/null || tmux new-session -d -s "$tgt" -c "$sdir" 2>/dev/null
-                    tmux join-pane -s "$spid" -t "=$tgt:" 2>/dev/null && tmux select-pane -t "$spid" -T "$stit" 2>/dev/null
+                    tmux join-pane -s "$spid" -t "=$tgt:" 2>/dev/null && set_pane_role "$spid" "$stit" 2>/dev/null
                     tmux select-layout -t "=$tgt" tiled 2>/dev/null
                   fi
                   _conf_del "$sses" "$stit" "$sdir"
@@ -151,7 +151,7 @@ EOF
 
 _adopt_legacy() {
   banner "adopt · bring in AIs you already run (no restart)"
-  command -v tmux >/dev/null 2>&1 || { warn "tmux missing"; exit 1; }
+  type -P tmux >/dev/null 2>&1 || { warn "tmux missing"; exit 1; }
   note "Ctrl+C anytime — progress so far is saved."
   mkdir -p "$CONFIG_DIR"
   trap 'echo ""; ok "saved so far: $WS_CONF   (check: loomo list)"; exit 0' INT
@@ -180,7 +180,7 @@ _adopt_legacy() {
       ask "  role name for this AI? [Enter=keep \"$T\" / type new / s=skip]: "; read -r ANS </dev/tty
       [ "$ANS" = "s" ] && { skip "skipped"; continue; }
       ROLE=${ANS:-$T}
-      [ "$ROLE" != "$T" ] && tmux select-pane -t "$P" -T "$ROLE"
+      if [ "$ROLE" != "$T" ]; then set_pane_role "$P" "$ROLE"; else tmux set-option -p -t "$P" @loomo_role "$ROLE" 2>/dev/null || true; fi
       echo "$S|$ROLE|$D" >> "$WS_CONF"
       append_role_template "$D" "$S" "$ROLE" "$HUB" "$HUBR"
       ok "pane adopted — ${C_B}$S · $ROLE${C_X}"

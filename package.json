@@ -1,6 +1,6 @@
 {
   "name": "@namki1222/loomo",
-  "version": "1.4.0",
+  "version": "2.0.11",
   "description": "Weave your Claude Code & Codex sessions into a team that talks to each other — multi-agent messaging over tmux, no daemon, no MCP.",
   "bin": {
     "loomo": "bin/tell",
@@ -44,6 +44,6 @@
     "url": "git+https://github.com/namki1222/loomo.git"
   },
   "scripts": {
-    "test": "bash -n bin/tell && echo syntax-ok"
+    "test": "bash -n bin/tell lib/*.sh && echo syntax-ok"
   }
 }

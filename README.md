@@ -36,6 +36,13 @@ When the backend changes an API, *you* copy the result and paste it into the fro
 
 You just talk to them in plain language; they coordinate on their own. And it doesn't care whether a session is **Claude Code or Codex** — they all talk over the same bridge.
 
+loomo has two goals:
+
+1. **Session-to-session communication** — projects and models can differ; Claude ↔ Claude, Codex ↔ Codex, and Claude ↔ Codex can request work and reply directly.
+2. **Easy for anyone** — you do not need to understand tmux, session IDs, or messaging commands. Build projects and panes in the dashboard, then delegate in plain language.
+
+New users only need to run `loomo`. It guides dependency setup, project and pane creation, conversation adoption, and conversation restoration after restart.
+
 <br>
 
 ```
@@ -55,7 +62,7 @@ Without it — you're the relay:         With it — they loop on their own:
 
 <br>
 
-Each session is **long-lived** — a resident teammate that keeps its own project's history, not a throwaway agent that forgets everything between tasks.
+Each session is **long-lived** — a resident teammate that keeps its own project's history, not a throwaway agent that forgets everything between tasks. loomo stores and restores session IDs so users never have to manage them manually.
 
 <br>
 
@@ -67,12 +74,12 @@ Each session is **long-lived** — a resident teammate that keeps its own projec
 
 <br>
 
-**`loomo init` installs all of these for you** — run it right after installing (it skips whatever is already present). The table below is just for reference / manual setup.
+**Running `loomo` installs these for you on first launch** and opens the dashboard when ready. It skips anything already present.
 
 | Need | Check | Notes |
 |---|---|---|
-| **tmux** | `tmux -V` | 3.x recommended · `loomo init` (or `brew install tmux`) |
-| **Claude Code and/or Codex** | `claude --version` / `codex --version` | the AI in each pane — mix freely · `loomo init` installs both |
+| **tmux** | `tmux -V` | 3.x recommended · first `loomo` run installs it |
+| **Claude Code and/or Codex** | `claude --version` / `codex --version` | first `loomo` run installs both |
 | **Node.js / npm** | `npm -v` | install channel only (runtime is pure shell) |
 | macOS or Linux | — | Windows expected under WSL (untested) |
 
@@ -89,12 +96,10 @@ Each session is **long-lived** — a resident teammate that keeps its own projec
 ```bash
 npm install -g @namki1222/loomo
 
-loomo init          # step 1 — install prerequisites: tmux + Claude Code + Codex (skips what's present)
-loomo doctor        # step 2 — verify the environment
-loomo add           # step 3 — build your team
+loomo               # check/install Homebrew → tmux → Claude Code → Codex, then open dashboard
 ```
 
-<sub>`loomo init` installs tmux (via your OS package manager: `brew` / `apt` / `dnf` / `pacman` / `apk`) and the AI CLIs (`@anthropic-ai/claude-code`, `@openai/codex`) via npm. It's idempotent — anything already installed is skipped — so it's always safe to run, and it's the recommended first step after install.</sub>
+<sub>First launch is idempotent: existing dependencies are skipped. On macOS, missing Homebrew is installed through its official interactive installer.</sub>
 
 <sub>Upgrading from a Korean-header setup (pre-1.1)? `export LOOMO_LANG=ko` keeps your existing protocol headers.</sub>
 
@@ -104,31 +109,45 @@ loomo add           # step 3 — build your team
 
 <br>
 
-## Set up your team
+## Dashboard guide for beginners
 
 <br>
 
-```bash
-loomo add
-```
+Run `loomo` to open the dashboard. Nearly everything can be managed here with the mouse.
 
 <br>
 
-The wizard asks, in order:
+### Sessions
 
-<br>
+- Select `[＋ Add project]`, then choose Claude/Codex → project name → first pane role → folder.
+- Click a project once to open details for panes and layouts.
+- In details, use `Add unassigned panel` → `[＋ New panel]` to create and assign a pane immediately.
+- Double-click a project to open all its panes in a dedicated terminal.
+- Use `Edit arrangement` to assign unassigned panes or move existing panes between projects.
 
-- **1 · Default AI model** — `claude` or `codex`. You can override it per session later, so Claude and Codex can share one screen.
+### Adopt
 
-- **2 · Projects** — for each: **project name (= session)** → **role (= pane)** → **directory** (arrow-key browser — no typing full paths) → **model** (Enter = default). Multiple roles per project.
+- Preview conversations previously used in Claude or Codex.
+- Choose a conversation and pane name to place it in **Unassigned panels**.
+- Conversations already managed by loomo are excluded from Adopt.
 
-<br>
+### Settings
 
-<sub>Need a hub (secretary) session? Set one up separately with `loomo hub` (new) or `loomo adopt` (designate an existing session).</sub>
+- Choose the Hub session that routes requests across projects.
+- Check Claude/Codex authentication and start or revoke login.
+- View environment status and usage.
+
+A project is one tmux session; each role is one resident AI pane. Claude and Codex panes can live in the same project.
 
 <br>
 
 This also inserts the collaboration convention into each directory (`CLAUDE.md` or `AGENTS.md`) — that's what tells the receiving AI to reply over the bridge.
+
+### Conversation persistence
+
+loomo stores the Claude/Codex session ID for every pane. Conversation previews and resume use that same ID, so `loomo restart` reopens the same conversations. If a configured pane is missing from a running tmux session, opening the session or running `loomo up` restores it automatically.
+
+Adopt shows only external conversations that loomo does not already own or have assigned.
 
 <br>
 
@@ -136,21 +155,63 @@ This also inserts the collaboration convention into each directory (`CLAUDE.md` 
 
 <br>
 
-## Run & talk
+## Terminal command guide
 
-<br>
+Use the CLI when you want a faster terminal workflow or scripting. Beginners do not need to memorize these commands.
+
+### Start and attach
 
 ```bash
-loomo up --all      # start every session (split panes + launch the AI), attach to the hub
-
-loomo up <project>  # or just one
-
-loomo list          # who you can talk to right now
+loomo up <project>      # start one project
+loomo up --all          # start every registered project
+loomo ws <project>      # start and attach in the current terminal
+loomo down <project>    # stop a project, keep its configuration
+loomo down --all        # stop every project
 ```
+
+### Configure and manage
+
+```bash
+loomo add                         # register a project with the terminal wizard
+loomo adopt                       # import an existing Claude/Codex conversation
+loomo hub                         # register a Hub session
+loomo layout <project> tiled      # change the pane layout
+loomo list                        # show sessions, roles, and run state
+loomo rm <project>                # remove project configuration
+```
+
+### Restore and diagnose
+
+```bash
+loomo restart          # restart private tmux and restore saved panes/conversations
+loomo doctor           # inspect the environment and configuration
+loomo doctor --fix     # repair issues that are safe to fix automatically
+loomo sync             # refresh collaboration blocks in CLAUDE.md/AGENTS.md
+loomo tmux status      # inspect loomo's private tmux server
+loomo update           # update to the latest npm release
+```
+
+### Cross-session request state
+
+```bash
+loomo task list
+loomo task ack <KEY>
+loomo task status <KEY> <state> "summary"
+```
+
+Sessions can message with `tell <session> <role> "request"`. Most users should simply ask their AI in plain language instead of typing this directly.
 
 <br>
 
-Then just ask any pane's AI in plain language:
+---
+
+<br>
+
+## Let sessions talk
+
+<br>
+
+Double-click a project in the dashboard, then ask any pane's AI in plain language:
 
 <br>
 
@@ -170,35 +231,16 @@ You never type a messaging command — the convention makes the AI relay it, and
 
 <br>
 
-## Commands
+## Useful behavior
 
 <br>
 
-Everything you run is a management command — a handful of them. Sessions message each other automatically via the convention; you never type that part.
-
-<br>
-
-| Command | What it does |
-|---|---|
-| `loomo up --all` \| `up <session>` | start all (→ attach hub) / one · bare `up` lists what's registered |
-| `loomo down <session>` \| `--all` | stop — kill the session only, config kept |
-| `loomo ws <session>` | start one and attach |
-| `loomo layout [<session>] <preset>` | rearrange panes (`tiled` / `main-vertical` / …), no `tmux.conf` |
-| `loomo init` | install prerequisites — tmux + Claude Code + Codex (skips what's present) |
-| `loomo add` | register a project — session, roles, dirs, model + convention |
-| `loomo adopt` | bring in AIs you're already running — no restart |
-| `loomo hub` | register the manager (hub) session — only one |
-| `loomo list` | address book — who you can talk to + status |
-| `loomo rm <session>` | delete a workspace — config + convention removed, project files untouched |
-| `loomo doctor` · `completion` · `help` | environment check · shell completion · full help |
-
-<br>
-
-Optional tab-completion:
-
-```bash
-echo 'eval "$(loomo completion)"' >> ~/.zshrc
-```
+- **Single-click** a project for details; **double-click** it to open the session terminal.
+- A pane name and path behave as one selectable item, and folders can be chosen in the browser.
+- Configured panes missing from a live tmux session are restored when the session opens.
+- Conversation previews and launches use the same session ID.
+- Stopping a project or restarting loomo preserves configuration and conversation identity.
+- Cross-session requests are tracked by KEY; a Hub can route work and aggregate replies.
 
 <br>
 
@@ -212,7 +254,7 @@ echo 'eval "$(loomo completion)"' >> ~/.zshrc
 
 The bridge is agent-agnostic, so a **hub running Claude can command a project running Codex** — and vice versa.
 
-Set the model per session in `loomo add` (or the 5th field of `~/.config/loomo/workspaces.conf`):
+Choose Claude or Codex first when creating a project or pane in the dashboard. Different panes in one project can use different models:
 
 <br>
 
