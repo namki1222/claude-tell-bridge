@@ -24,6 +24,7 @@ cmd_help() {
   row "ws"         "start one and attach — loomo ws <session> (no arg: list)"
   row "list"       "address book — who you can talk to + convention/run status"
   row "task"       "task center — list · ack <KEY> · status <KEY> <state>"
+  row "skill"      "Markdown skills — add · list (also available from pane right-click)"
   row "sync"       "refresh loomo blocks in CLAUDE.md/AGENTS.md (other content preserved)"
   row "tmux"       "tmux isolation — status · dedicated · legacy"
   row "rm"         "delete workspace — kill + config + convention block removed (project files untouched)"
@@ -357,6 +358,26 @@ _npm_install_args() { # sets NPM_INSTALL_ARGS; falls back to a user-owned prefix
   note "$user_prefix"
 }
 
+_npm_global_root() { npm root -g "${NPM_INSTALL_ARGS[@]}" 2>/dev/null; }
+_claude_ok() { command -v claude >/dev/null 2>&1 && claude --version >/dev/null 2>&1; }
+
+# claude-code 패키지는 깔렸는데 네이티브 바이너리(postinstall/optional dep)가 빠졌을 때 복구.
+# 환경 npm 설정(ignore-scripts / omit=optional)이나 postinstall 미실행으로 흔히 생김 →
+# 에러가 안내하는 그대로 install.cjs를 직접 실행하고, 그래도 안 되면 optional 포함 재설치.
+_finish_claude_native() {
+  _claude_ok && return 0
+  local root inst
+  root=$(_npm_global_root); inst="$root/@anthropic-ai/claude-code/install.cjs"
+  if [ -f "$inst" ] && command -v node >/dev/null 2>&1; then
+    step "finishing Claude Code native binary"
+    node "$inst" >/dev/null 2>&1 || true
+  fi
+  _claude_ok && return 0
+  npm install -g "${NPM_INSTALL_ARGS[@]}" --include=optional --foreground-scripts @anthropic-ai/claude-code >/dev/null 2>&1 || true
+  [ -f "$inst" ] && command -v node >/dev/null 2>&1 && node "$inst" >/dev/null 2>&1 || true
+  _claude_ok
+}
+
 cmd_init() { # 사전 요구사항 설치: tmux · Claude Code · Codex (이미 있으면 건너뜀)
   local YES=0 a
   for a in "$@"; do case "$a" in -y|--yes) YES=1 ;; esac; done
@@ -370,7 +391,9 @@ cmd_init() { # 사전 요구사항 설치: tmux · Claude Code · Codex (이미 
     command -v brew >/dev/null 2>&1 && ok "brew   $(brew --version 2>/dev/null | head -1 | awk '{print $2}')" || { note "brew   — not installed"; need_brew=1; }
   fi
   type -P tmux >/dev/null 2>&1 && ok "tmux   $(tmux -V | awk '{print $2}')" || { note "tmux   — not installed"; need_tmux=1; }
-  command -v claude >/dev/null 2>&1 && ok "claude $(_ver claude)"                 || { note "claude — not installed"; need_claude=1; }
+  if command -v claude >/dev/null 2>&1; then
+    if claude --version >/dev/null 2>&1; then ok "claude $(_ver claude)"; else note "claude — installed but native binary missing"; need_claude=1; fi
+  else note "claude — not installed"; need_claude=1; fi
   command -v codex  >/dev/null 2>&1 && ok "codex  $(_ver codex)"                  || { note "codex  — not installed"; need_codex=1; }
 
   if [ $((need_brew + need_tmux + need_claude + need_codex)) -eq 0 ]; then
@@ -404,7 +427,7 @@ cmd_init() { # 사전 요구사항 설치: tmux · Claude Code · Codex (이미 
     if command -v npm >/dev/null 2>&1; then
       local -a NPM_INSTALL_ARGS=()
       if _npm_install_args; then
-        [ "$need_claude" = 1 ] && { step "installing Claude Code"; npm install -g "${NPM_INSTALL_ARGS[@]}" @anthropic-ai/claude-code || fail=1; }
+        [ "$need_claude" = 1 ] && { step "installing Claude Code"; npm install -g "${NPM_INSTALL_ARGS[@]}" --include=optional @anthropic-ai/claude-code || fail=1; _finish_claude_native || { warn "Claude Code native binary missing — run: node \"$(_npm_global_root)/@anthropic-ai/claude-code/install.cjs\""; fail=1; }; }
         [ "$need_codex"  = 1 ] && { step "installing Codex";       npm install -g "${NPM_INSTALL_ARGS[@]}" @openai/codex          || fail=1; }
       else fail=1
       fi
@@ -443,6 +466,14 @@ cmd_doctor() {
   if [ "$LOOMO_TMUX_MODE" = dedicated ]; then echo "✅ private tmux server: $LOOMO_TMUX_SOCKET (user config isolated)"
   else echo "ℹ️  legacy tmux mode — switch safely with: loomo tmux dedicated"; fi
   if command -v "$AGENT_CMD" >/dev/null 2>&1; then echo "✅ $AGENT_CMD $("$AGENT_CMD" --version 2>/dev/null | awk '{print $1}')"; else echo "⚠️  $AGENT_CMD CLI missing — messaging works but there is no AI to answer"; fi
+  if command -v claude >/dev/null 2>&1 && ! claude --version >/dev/null 2>&1; then
+    if [ "$fix" = 1 ]; then
+      if _finish_claude_native; then echo "✅ repaired Claude Code native binary"
+      else echo "❌ Claude Code native binary still missing — node \"$(_npm_global_root)/@anthropic-ai/claude-code/install.cjs\""; ok=1; fi
+    else
+      echo "❌ Claude Code installed but native binary missing (native binary not installed) — run: loomo doctor --fix"; ok=1
+    fi
+  fi
   if [ -n "${TMUX:-}" ]; then echo "✅ running inside tmux (sender header auto-detected)"; else echo "ℹ️  outside tmux — messages go out without a from header"; fi
   if [ -f "$WS_CONF" ]; then echo "✅ workspace config: $WS_CONF ($(grep -cvE '^[[:space:]]*(#|$)' "$WS_CONF" 2>/dev/null || echo 0) lines)"; else echo "ℹ️  no workspace config yet — create with 'loomo add' or 'loomo adopt'"; fi
   if get_hub; then echo "✅ hub: $HUB · $HUBR (only one hub)"; else echo "ℹ️  no hub — register with 'loomo hub' (optional)"; fi
@@ -466,6 +497,8 @@ cmd_doctor() {
 append_role_template() { # $1=dir  $2=session  $3=roles(공백구분)  $4=hub_session  $5=hub_role
   local dir="$1" session="$2" roles="$3" hub_s="$4" hub_r="$5"
   local f="$dir/$AGENT_CONV" t="$TEMPLATE_DIR/CLAUDE-section-role.en.md"
+  # Hub identity is runtime state; ignore a caller's possibly stale cached copy.
+  if get_hub >/dev/null 2>&1; then hub_s="$HUB"; hub_r="$HUBR"; else hub_s=""; hub_r=""; fi
   [ "$LOOMO_LANG" = "ko" ] && t="$TEMPLATE_DIR/CLAUDE-section-role.md"
   [ -f "$t" ] || { warn "install broken — reinstall: npm i -g @namki1222/loomo"; return 1; }
   if [ -f "$f" ] && grep -qE '세션 요청 - KEY|session request - KEY' "$f" 2>/dev/null; then
@@ -660,6 +693,14 @@ _conf_del() { # $1=session $2=role $3=dir → workspaces.conf 에서 해당 줄 
 }
 
 cmd_hub() {
+  if [ "${1:-}" = status ]; then
+    if get_hub; then
+      printf '%s|%s\n' "$HUB" "$HUBR"
+      return 0
+    fi
+    echo "loomo: no hub configured" >&2
+    return 1
+  fi
   banner "hub · register the manager session"
   note "a hub is a 'secretary' session that directs your projects for you."
   note "e.g. \"add an API on the server and a button on the web\" → it dispatches & reports."

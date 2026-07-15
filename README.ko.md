@@ -136,12 +136,22 @@ loomo               # Homebrew → tmux → Claude Code → Codex 확인/설치 
 - 전체 요청을 라우팅할 Hub session을 지정한다.
 - Claude/Codex 로그인 상태를 확인하고 인증을 시작하거나 해제한다.
 - 환경 상태와 사용량을 확인한다.
+- **[⟳ Sync now]** 로 모든 프로젝트의 협업 규약(CLAUDE.md/AGENTS.md)을 최신 템플릿으로 갱신한다.
+
+### 패널 우클릭과 스킬
+
+- 대시보드 **Settings → Skills → Add Markdown skill**을 선택한다.
+- 입력 영역에 `.md` 파일을 드래그앤드롭한 뒤 Enter를 누른다.
+- 추가된 스킬은 다음 우클릭 메뉴부터 `Use: 파일명`으로 표시된다.
+- 스킬을 클릭하면 해당 패널의 AI가 Markdown 지침을 읽고 활성화한다.
+- Settings의 스킬 목록에서 `[Delete]` → `[Confirm delete]`로 제거할 수 있다.
+- 스킬은 loomo 설정의 `skills/<이름>/SKILL.md`에 보관된다.
 
 한 프로젝트는 하나의 tmux 세션이고, 역할 하나는 그 안의 AI 패널 하나다. 프로젝트 하나에 Claude와 Codex 패널을 함께 둘 수 있다.
 
 <br>
 
-이때 각 디렉터리의 규약 파일(`CLAUDE.md` 또는 `AGENTS.md`)에 협업 규약이 삽입된다 — 받는 쪽 AI가 브릿지로 응답하는 근거다.
+이때 각 디렉터리의 규약 파일(`CLAUDE.md` 또는 `AGENTS.md`)에 협업 규약이 삽입된다 — 받는 쪽 AI가 브릿지로 응답하는 근거다. 프로젝트 패널은 자기 프로젝트 안에서만 요청을 보내고, 다른 프로젝트로 가는 일은 허브를 거친다.
 
 ### 대화 복원
 
@@ -197,6 +207,8 @@ loomo update           # 최신 npm 버전으로 업데이트
 loomo task list
 loomo task ack <KEY>
 loomo task status <KEY> <상태> "요약"
+loomo skill add <파일.md>
+loomo skill list
 ```
 
 세션끼리 메시지를 보낼 때는 `tell <세션> <역할> "요청"`을 사용한다. 하지만 일반 사용자는 직접 입력하지 않고 AI에게 자연어로 부탁하면 된다.

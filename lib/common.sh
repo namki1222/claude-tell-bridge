@@ -1,11 +1,26 @@
 # loomo — shared helpers (colors, banner/note/ok/warn, abspath)
 # sourced by bin/tell (not standalone). shell: bash
 
+# Terminal width for CLI chrome — matches the dashboard's full-width rules so a
+# banner never stops short mid-screen. Falls back to 52 off a TTY (pipes/logs).
+_term_cols() {
+  local c=""
+  [ -t 1 ] && c=$(tput cols 2>/dev/null)
+  case "$c" in ''|*[!0-9]*) c=52 ;; esac
+  [ "$c" -lt 20 ] && c=20
+  printf '%s' "$c"
+}
+_rule() { # $1=width $2=glyph(default ═) → a horizontal rule that fills the width
+  local n="$1" ch="${2:-═}" out=""
+  while [ "$n" -gt 0 ]; do out="$out$ch"; n=$((n-1)); done
+  printf '%s' "$out"
+}
 banner() {
+  local w; w=$(_term_cols)
   echo ""
-  echo "${C_C}${C_B}════════════════════════════════════════════════════${C_X}"
+  echo "${C_C}${C_B}$(_rule "$w")${C_X}"
   echo "${C_C}${C_B}   🔗 $BRAND — $1${C_X}"
-  echo "${C_C}${C_B}════════════════════════════════════════════════════${C_X}"
+  echo "${C_C}${C_B}$(_rule "$w")${C_X}"
 }
 
 step() { echo ""; echo "${C_Y}${C_B}▶ $1${C_X}"; }

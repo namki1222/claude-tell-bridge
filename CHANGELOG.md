@@ -3,6 +3,23 @@
 All notable changes to this project are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/); this project follows [SemVer](https://semver.org/).
 
+## [2.0.14] - 2026-07-15
+
+### Added
+- **Pane right-click Markdown skills.** `loomo skill add <file.md>` / `list` / `delete`, plus a dashboard **Settings → Skills** manager. An added skill appears in the pane right-click menu as `Use: <name>`; selecting it makes that pane's AI read and activate the Markdown instructions. Stored under loomo's `skills/<name>/SKILL.md`.
+- **`loomo hub status`** subcommand — prints the current `session|role` hub. The hub and role conventions now instruct agents to verify the live hub with it before routing, instead of trusting a possibly stale address baked into the file.
+- **Dashboard Settings → Sync conventions** (`[⟳ Sync now]`) — refresh every project's `CLAUDE.md`/`AGENTS.md` collaboration block from the dashboard, no CLI needed.
+
+### Changed
+- **Session-scoped messaging.** A non-hub pane now only sends requests within its own project; reaching another project is routed through the hub. "All sessions" no longer fans out to every registered session.
+- **Runtime hub resolution when writing conventions** — `append_role_template` and `sync` resolve the live hub rather than a stale cached value.
+- **CLI banners span the full terminal width** (were a fixed 52 columns), matching the dashboard's rules.
+
+### Fixed
+- **Drag-to-select no longer wastes a click.** On release the selection copies and leaves copy-mode (`copy-pipe-and-cancel`), so you can type immediately instead of clicking once just to clear the selection.
+- **Claude Code native-binary repair.** First-run install and `loomo doctor --fix` detect a claude-code package whose native binary is missing (skipped postinstall / `omit=optional`) and finish it via `install.cjs` or an `--include=optional` reinstall.
+- **Terminal.app tab opening** runs `do script` only when a new tab actually appears, so a missing Accessibility permission no longer types the launch command into the dashboard tab (it falls back to a new window).
+
 ## [2.0.3] - 2026-07-14
 
 ### Added

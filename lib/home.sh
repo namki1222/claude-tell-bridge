@@ -8,7 +8,9 @@ cmd_home() {
   local needs_setup=0
   [ "$(uname)" = Darwin ] && ! command -v brew >/dev/null 2>&1 && needs_setup=1
   type -P tmux >/dev/null 2>&1 || needs_setup=1
-  command -v claude >/dev/null 2>&1 || needs_setup=1
+  # claude는 '명령 존재'만이 아니라 '실제 동작'까지 본다 — 네이티브 바이너리가
+  # 빠진 반쪽 설치도 첫 설정(cmd_init)이 감지·복구하도록 needs_setup을 켠다.
+  { command -v claude >/dev/null 2>&1 && claude --version >/dev/null 2>&1; } || needs_setup=1
   command -v codex >/dev/null 2>&1 || needs_setup=1
 
   if [ "$needs_setup" = 1 ] && [ -t 0 ] && [ -t 1 ]; then
@@ -284,12 +286,12 @@ _dashboard() {
   local PENDING_TARGET="" PENDING_ROLE=""
   local BROWSE_DIR="$PWD" ADD_BROWSE=0
   local ARRANGE_MODE=0 ARRANGE_MSG=""
-  local SETTINGS_PAGE=main SETTINGS_MSG="" CLAUDE_AUTH=unknown CODEX_AUTH=unknown
+  local SETTINGS_PAGE=main SETTINGS_MSG="" SKILL_DELETE="" CLAUDE_AUTH=unknown CODEX_AUTH=unknown
   local DETAIL_SESSION="" DETAIL_ADD=0 DETAIL_EDIT=0 DETAIL_DELETE=0 DETAIL_PRESET="" DETAIL_MSG="" EDIT_SESSION="" EDIT_ROLE=""
   local HOVER_AREA="" HOVER_INDEX=-1 HOVER_GROUP="" LAST_CLICK_SESSION="" LAST_CLICK_TIME=0
   local ADOPT_FILTER=claude ADOPT_LOADED=0 ADOPT_MSG="" ADOPT_SELECTED=""
   local C_ACTIVE="" C_MUTED=""; [ -n "$C_X" ] && { C_ACTIVE=$'\033[97m\033[1m'; C_MUTED=$'\033[2m\033[37m'; }
-  local ROWS COLS MMAX=0 LW=0 SESSION_LEFT_W=0 LISTBODY=1 HUB_ROWS=0; _dash_size
+  local ROWS COLS MMAX=0 LW=0 SESSION_LEFT_W=0 LISTBODY=1 HUB_ROWS=0 STAR_X0=0 STAR_X1=0 STAR_Y=0 TASK_RESET_X0=0 TASK_RESET_X1=0 TASK_RESET_Y=0; _dash_size
   local -a TX0 TX1
   local VER; VER=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SELF_DIR/../package.json" 2>/dev/null | head -1)
   local CWD="${PWD/#$HOME/~}"
@@ -309,7 +311,7 @@ _dashboard() {
   _flow_ensure() { local t="${TABS[$tab]}"; case "$t" in
     Adopt) [ "$ADOPT_LOADED" = 1 ] || _adopt_scan ;;
     Sessions) case "$FLOW" in Add|SessionAssign|SessionRoleEdit|DetailNewPanel) : ;; *) FLOW="" ;; esac ;;
-    Settings) case "$FLOW" in Hub|SettingsNotice) : ;; *) FLOW="" ;; esac ;;
+    Settings) case "$FLOW" in Hub|SettingsNotice|SkillAdd) : ;; *) FLOW="" ;; esac ;;
     *) FLOW="" ;;
   esac; }
   _flow_start() {
@@ -321,7 +323,7 @@ _dashboard() {
     esac
   }
   _flow_answer() { local a="$1"; case "$FLOW" in
-    Add) _flow_add "$a" ;; Hub) _flow_hub "$a" ;; SettingsNotice) FLOW="" ;;
+    Add) _flow_add "$a" ;; Hub) _flow_hub "$a" ;; SettingsNotice) FLOW="" ;; SkillAdd) _flow_skill_add "$a" ;;
     SessionAdopt) _flow_session_adopt "$a" ;; SessionAssign) _flow_session_assign "$a" ;;
     SessionRoleEdit) _flow_role_edit "$a" ;; DetailNewPanel) _flow_detail_new_panel "$a" ;;
   esac; }
@@ -670,14 +672,16 @@ EOF
     esac
   }
   _settings_hub_target() { # registered project session -> secretary session
-    local session="$1" role
+    local session="$1" role sync_ok=1
     role=$(LC_ALL=C awk -F'|' -v s="$session" '$1==s && $2!="" {print $2; exit}' "$WS_CONF" 2>/dev/null)
     role=${role:-$session}
     mkdir -p "$CONFIG_DIR"
     printf '%s|%s\n' "$session" "$role" > "$HUB_FILE"
     get_hub >/dev/null 2>&1
+    cmd_sync >/dev/null 2>&1 || sync_ok=0
     if tmux has-session -t "=$HUB" 2>/dev/null || ws_boot "$HUB" >/dev/null 2>&1; then
-      SETTINGS_MSG="Hub session → $session · active"
+      if [ "$sync_ok" = 1 ]; then SETTINGS_MSG="Hub session → $session · active · 전체 패널 동기화 완료"
+      else SETTINGS_MSG="Hub session → $session · active · 일부 패널 동기화 실패"; fi
     else
       SETTINGS_MSG="Hub session → $session · 시작 실패"
     fi
@@ -717,7 +721,35 @@ EOF
     esac
     SETTINGS_MSG="$1 logout started in background"
   }
-  _open_session() { # double click: start if needed, then attach in a new terminal window
+  _settings_skill_start() {
+    FLOW=SkillAdd; FSTEP=1; INPUT=""; LOG=("${C_B}＋ Add Markdown skill${C_X}" "" "이 화면에 .md 파일을 드래그앤드롭하세요." "${C_D}직접 경로를 입력해도 됩니다.${C_X}")
+  }
+  _flow_skill_add() { local raw="$1" output
+    [ -n "$raw" ] || { _say "Markdown 파일 경로가 필요해요:"; return; }
+    output=$(LOOMO_SKILL_NO_PAUSE=1 cmd_skill_add "$raw" 2>&1) || { _say "${C_R}${output:-스킬 추가 실패}${C_X}"; return; }
+    SETTINGS_MSG=$(printf '%s' "$output" | LC_ALL=C awk '/Added skill:/{sub(/^.*Added skill: /,""); print; exit}')
+    SETTINGS_MSG="Skill added · ${SETTINGS_MSG:-ready}"
+    FLOW=""; FSTEP=0; INPUT=""; mtop=0
+  }
+  _settings_skill_delete_confirm() { local slug="$1" output
+    output=$(cmd_skill_delete "$slug" 2>&1) || { SETTINGS_MSG="${output:-Skill delete failed}"; SKILL_DELETE=""; return 1; }
+    SETTINGS_MSG="Skill deleted · $slug"; SKILL_DELETE=""; mtop=0
+  }
+  _settings_sync() { # refresh every project's CLAUDE.md/AGENTS.md convention block (quiet; output stays off the alt-screen)
+    local output rc count
+    output=$(cmd_sync 2>&1); rc=$?
+    load_agent_profile "$TELL_AGENT"   # cmd_sync switches profiles per panel; restore the dashboard default
+    if [ "$rc" -eq 0 ]; then
+      count=$(printf '%s' "$output" | LC_ALL=C awk '/convention file\(s\) refreshed/{print $1; exit}')
+      SETTINGS_MSG="Conventions synced · ${count:-0} file(s) refreshed"
+    elif printf '%s' "$output" | grep -q 'no registered panels'; then
+      SETTINGS_MSG="Sync skipped · 등록된 패널이 없습니다"
+    else
+      SETTINGS_MSG="Sync failed · 일부 규약을 갱신하지 못했습니다"
+    fi
+    mtop=0
+  }
+  _open_session() { # double click: start if needed, then open in a new terminal window
     local session="$1" output rc
     loomo_log INFO dashboard.session.open "session=$session"
     if tmux has-session -t "=$session" 2>/dev/null; then
@@ -900,7 +932,6 @@ EOF
             fi
           fi
           [ "$pcount" -gt 4 ] && _unassigned_row "  ${C_D}미리보기는 첫 4개 패널 기준${C_X}"
-          [ -n "$DETAIL_MSG" ] && _unassigned_row "  ${C_D}$DETAIL_MSG${C_X}"
         fi
         _unassigned_row ""
         if [ "$DETAIL_ADD" = 0 ]; then
@@ -979,8 +1010,7 @@ EOF
         else _main_row "  ${C_C}${C_B}[✎ Edit arrangement]${C_X}" arrange; fi
         _main_row ""
         if [ "$ARRANGE_MODE" = 1 ]; then
-          if [ -n "$ARRANGE_MSG" ]; then _main_row "  ${C_R}$ARRANGE_MSG${C_X}"
-          else _main_row "  ${C_D}패널 선택 → 대상 프로젝트 선택 → Done editing${C_X}"; fi
+          _main_row "  ${C_D}패널 선택 → 대상 프로젝트 선택 → Done editing${C_X}"
         fi
         local s reg _c role _d rid _a rr role_label role_line label_width prompt_width; reg=$(_reg_sessions)
         while IFS= read -r s; do [ -n "$s" ] || continue
@@ -1017,9 +1047,14 @@ EOF
         [ -z "$reg" ] && { _main_row ""; _main_row "  아직 프로젝트가 없어요. Add 탭에서 먼저 만들어보세요."; }
       fi
     elif [ "$name" = "Settings" ]; then
-      FLOW=""
+      _flow_ensure
       local ss sc role sd srid sa rr reg ast; reg=$(_reg_sessions)
-      if [ "$SETTINGS_PAGE" = main ]; then
+      if [ "$FLOW" = SkillAdd ]; then
+        MLC=()
+        _main_row "  ${C_C}${C_B}[← Back]${C_X}  ${C_C}${C_B}Add Markdown skill${C_X}" settingsskillback
+        _main_row ""
+        local sli; for ((sli=0;sli<${#LOG[@]};sli++)); do _main_row "${LOG[$sli]}"; done
+      elif [ "$SETTINGS_PAGE" = main ]; then
         [ "$CLAUDE_AUTH" = unknown ] && _settings_auth_refresh
         _main_row "  ${C_C}${C_B}Settings${C_X}"
         _main_row ""
@@ -1027,6 +1062,9 @@ EOF
         rr="__OFF__"; [ -n "${HUB:-}" ] && tmux has-session -t "=$HUB" 2>/dev/null && rr="__ON__"
         if [ -n "${HUB:-}" ]; then _main_row "  $rr ${C_B}$HUB${C_X}  ${C_D}[Change]${C_X}" settingshub
         else _main_row "  ${C_D}Not selected${C_X}  ${C_C}[Configure]${C_X}" settingshub; fi
+        _main_row ""
+        _main_row "  ${C_B}Conventions${C_X}  ${C_D}협업 규약 동기화${C_X}"
+        _main_row "  ${C_C}${C_B}[⟳ Sync now]${C_X}  ${C_D}모든 CLAUDE.md/AGENTS.md 갱신${C_X}" settingssync
         _main_row ""
         _main_row "  ${C_B}AI models${C_X}  ${C_D}[Refresh status]${C_X}" authrefresh
         _main_row "  ${C_D}로그인 상태와 계정을 관리합니다${C_X}"
@@ -1044,7 +1082,24 @@ EOF
           connecting) ast="${C_Y}${C_B}●${C_X}"; _main_row "  $ast ${C_B}Codex${C_X}   ${C_D}logging in…${C_X}" ;;
           *) ast="${C_R}×${C_X}"; _main_row "  $ast ${C_B}Codex${C_X}   ${C_D}unavailable${C_X}" ;;
         esac
-        [ -n "$SETTINGS_MSG" ] && { _main_row ""; _main_row "  ${C_G}$SETTINGS_MSG${C_X}"; }
+        _main_row ""
+        local skill_count=0 skill_path skill_dir skill_slug skill_name
+        [ -d "$SKILL_DIR" ] && skill_count=$(find "$SKILL_DIR" -mindepth 2 -maxdepth 2 -name SKILL.md 2>/dev/null | wc -l | tr -d ' ')
+        _main_row "  ${C_B}Skills${C_X}  ${C_D}$skill_count installed${C_X}"
+        _main_row "  ${C_C}${C_B}[＋ Add Markdown skill]${C_X}" settingsskill
+        if [ "$skill_count" -gt 0 ]; then
+          for skill_path in "$SKILL_DIR"/*/SKILL.md; do
+            [ -f "$skill_path" ] || continue
+            skill_dir=$(dirname "$skill_path"); skill_slug=$(basename "$skill_dir")
+            skill_name=$(cat "$skill_dir/name" 2>/dev/null || printf '%s' "$skill_slug")
+            _main_row "  · $skill_name  ${C_R}[Delete]${C_X}" settingsskilldelete "$skill_slug"
+            if [ "$SKILL_DELETE" = "$skill_slug" ]; then
+              _main_row "    ${C_R}Delete this skill?${C_X}"
+              _main_row "    ${C_D}[Cancel]${C_X}" settingsskillcancel
+              _main_row "    ${C_R}${C_B}[Confirm delete]${C_X}" settingsskillconfirm "$skill_slug"
+            fi
+          done
+        fi
       elif [ "$SETTINGS_PAGE" = hub ]; then
         _main_row "  ${C_C}${C_B}[← Back]${C_X}  ${C_C}${C_B}Hub session${C_X}" settingsback
         _main_row "  ${C_D}비서로 사용할 세션을 선택하세요${C_X}"
@@ -1060,7 +1115,6 @@ EOF
 $reg
 EOF
         [ -n "$reg" ] || _main_row "  ${C_D}선택할 프로젝트 세션이 없습니다.${C_X}"
-        [ -n "$SETTINGS_MSG" ] && { _main_row ""; _main_row "  ${C_G}$SETTINGS_MSG${C_X}"; }
       fi
     elif [ "$name" = "Adopt" ]; then
       _flow_ensure
@@ -1225,6 +1279,20 @@ EOF
     printf '\033[s%s▏%s\033[u' "${C_D}" "${C_X}"
   }
 
+  _open_github_star() {
+    local slug="namki1222/loomo" url="https://github.com/namki1222/loomo"
+    # gh CLI가 로그인돼 있으면 실제로 별을 찍는다(원클릭). 아니면 repo 페이지로 폴백.
+    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+      if gh api --method PUT "/user/starred/$slug" >/dev/null 2>&1; then
+        DETAIL_MSG="★ Starred! GitHub에 별을 찍었습니다 — 고마워요"; return 0
+      fi
+    fi
+    if command -v open >/dev/null 2>&1; then open "$url" >/dev/null 2>&1 &
+    elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$url" >/dev/null 2>&1 &
+    else DETAIL_MSG="GitHub: $url"; return 1; fi
+    DETAIL_MSG="GitHub repo를 열었습니다 · ★ 눌러 별을 남겨주세요"
+  }
+
   _read_tui_char() { # macOS Bash 3.2 read -n1 returns UTF-8 bytes, not characters
     local out="$1" timeout="${2:-1}" ch="" more="" byte=0 need=0 i
     IFS= read -rsn1 -t "$timeout" ch </dev/tty || return 1
@@ -1285,14 +1353,25 @@ EOF
       pad=$(( b - n )); while [ "$pad" -gt 0 ]; do _right_row ""; pad=$((pad-1)); done
       for ((i=1;i<=n;i++)); do _right_row "${!i}"; done
     }
-    local task_tone=G task_status="  no active tasks"
-    if [ "$TASK_ATTENTION" -gt 0 ]; then task_tone=R; task_status="@$task_tone@  ! attention $TASK_ATTENTION"
-    elif [ "$TASK_RUNNING" -gt 0 ]; then task_status="@G@  ● running $TASK_RUNNING"
-    elif [ "$TASK_DONE" -gt 0 ]; then task_status="@D@  ✓ recent $TASK_DONE"; fi
+    local task_tone=G task_status="@D@  대기 중 작업 없음"
+    if [ "$TASK_ATTENTION" -gt 0 ]; then task_tone=R; task_status="@$task_tone@  ! 확인 필요 $TASK_ATTENTION"
+    elif [ "$TASK_RUNNING" -gt 0 ]; then task_status="@G@  ● 진행 중 $TASK_RUNNING"
+    elif [ "$TASK_DONE" -gt 0 ]; then task_status="@D@  ✓ 최근 완료 $TASK_DONE"; fi
+    local task_state_kr=""; case "$TASK_LATEST_STATE" in
+      working|delivered|acknowledged) task_state_kr="진행 중" ;;
+      needs_approval) task_state_kr="승인 대기" ;;
+      failed) task_state_kr="실패" ;;
+      stale) task_state_kr="응답 지연" ;;
+      completed) task_state_kr="완료" ;;
+      cancelled) task_state_kr="취소" ;;
+      *) task_state_kr="$TASK_LATEST_STATE" ;;
+    esac
+    # tasks = 세션끼리 tell로 주고받는 위임 작업(KEY 추적)의 현재 상태. ⟳ 아이콘으로 비움.
     _region "$h_task" 0 "tasks" \
       "$task_status" \
-      "@D@  running $TASK_RUNNING · done $TASK_DONE" \
-      "${TASK_LATEST_TARGET:+@$task_tone@  ${TASK_LATEST_TARGET}: ${TASK_LATEST_STATE}}" \
+      "@D@  세션끼리 맡긴 위임 작업" \
+      "@D@  진행 $TASK_RUNNING · 완료 $TASK_DONE · 확인 $TASK_ATTENTION" \
+      "${TASK_LATEST_TARGET:+@$task_tone@  최근 ${TASK_LATEST_TARGET} — ${task_state_kr}}" \
       "${TASK_LATEST_SUMMARY:+@D@  ${TASK_LATEST_SUMMARY}}"
     if [ -n "${HUB:-}" ]; then _region "$h_hub" 1 "비서(hub)" "  $HUB" "  $hubrun"; else _region "$h_hub" 1 "비서(hub)" "  ${C_D}없음 (Settings)${C_X}"; fi
     _region_bottom "$h_cla" 1 "claude usage" \
@@ -1315,10 +1394,25 @@ EOF
     printf '\033[1;1H  %s🔗 loomo%s   %s%s%s\033[K' "${C_C}${C_B}" "${C_X}" "${C_D}" "${CWD:0:$(( COLS - 14 ))}" "${C_X}"
     _draw_tabs; printf '\033[3;1H%s\033[K' "$(_hrn "$COLS")"
     _draw_main
-    printf '\033[%d;1H%s%s 채팅%s\033[K' "$(( ROWS - 2 ))" "${C_D}" "$(_hrn 3)" "$(_hrn $(( LW - 8 )))"
+    local notice="" notice_tone="$C_G" notice_icon="✓"
+    if [ -n "$DETAIL_MSG" ]; then notice="$DETAIL_MSG"
+    elif [ -n "$SETTINGS_MSG" ]; then notice="$SETTINGS_MSG"
+    elif [ -n "$ARRANGE_MSG" ]; then notice="$ARRANGE_MSG"; fi
+    case "$notice" in
+      *실패*|*오류*|*못함*|*failed*|*Failed*|*missing*|*not\ found*) notice_tone="$C_R"; notice_icon="!" ;;
+      *started*|*active*|*완료*|*added*|*deleted*|*Applied*|*refreshed*) notice_tone="$C_G"; notice_icon="✓" ;;
+      *) notice_tone="$C_Y"; notice_icon="•" ;;
+    esac
+    if [ -n "$notice" ]; then
+      _fit_cols "$notice" $((LW-8))
+      printf '\033[%d;1H%s%s %s %s%s\033[K' "$(( ROWS - 2 ))" "${C_D}" "$(_hrn 2)" "$notice_tone" "$notice_icon $FITTED" "$C_X"
+    else
+      printf '\033[%d;1H%s%s 채팅%s\033[K' "$(( ROWS - 2 ))" "${C_D}" "$(_hrn 3)" "$(_hrn $(( LW - 8 )))"
+    fi
     printf '\033[%d;1H %s❯%s %s\033[K' "$(( ROWS - 1 ))" "${C_C}${C_B}" "${C_X}" "${INPUT:0:$(( LW - 4 ))}"
     printf '\033[s%s▏%s' "${C_D}" "${C_X}"
     printf '\033[%d;1H %s←→ 탭 · 채팅 입력 후 Enter · ↑↓ 스크롤 · Ctrl-C 종료%s\033[0m\033[K' "$ROWS" "${C_D}" "${C_X}"
+    STAR_X0=0; STAR_X1=0; STAR_Y=0; TASK_RESET_X0=0; TASK_RESET_X1=0; TASK_RESET_Y=0
     if [ "$rw" -gt 0 ]; then local r rc
       for ((r=4; r<=ROWS; r++)); do rc="${R[$((r-4))]:-}"
         if [ "$rc" = "---" ]; then printf '\033[%d;%dH%s├%s%s' "$r" "$(( LW+1 ))" "${C_D}" "$(_hrn "$rw")" "${C_X}"
@@ -1328,7 +1422,19 @@ EOF
         elif [ "${rc:0:3}" = "@R@" ]; then printf '\033[%d;%dH%s│%s %s%s%s\033[K' "$r" "$(( LW+1 ))" "${C_D}" "${C_X}" "${C_R}${C_B}" "${rc:3:$(( rw-1 ))}" "${C_X}"
         elif [ "${rc:0:3}" = "@D@" ]; then printf '\033[%d;%dH%s│%s %s%s%s\033[K' "$r" "$(( LW+1 ))" "${C_D}" "${C_X}" "${C_D}" "${rc:3:$(( rw-1 ))}" "${C_X}"
         else printf '\033[%d;%dH%s│%s %s\033[K' "$r" "$(( LW+1 ))" "${C_D}" "${C_X}" "${rc:0:$(( rw-1 ))}"; fi
-      done; fi
+      done
+      # ★ Star on GitHub — loomo 버전 섹션(우측 패널 맨 아래 행)에 배치. R-loop 이후 덮어써 안 지워지게.
+      local star_label="★ Star on GitHub"
+      if [ "$rw" -ge $(( ${#star_label} + 2 )) ]; then
+        STAR_Y=$ROWS; STAR_X0=$(( LW + 3 )); STAR_X1=$(( STAR_X0 + ${#star_label} - 1 ))
+        printf '\033[%d;%dH%s%s%s\033[K' "$STAR_Y" "$STAR_X0" "${C_C}${C_B}" "$star_label" "${C_X}"
+      fi
+      # ⟳ 비우기 버튼 — tasks 타이틀 행 오른쪽. 기록이 있을 때만, 눈에 띄게(청록 굵게).
+      if [ -s "$TASK_FILE" ] && [ "$rw" -ge 12 ]; then
+        TASK_RESET_Y=4; TASK_RESET_X1=$(( COLS - 1 )); TASK_RESET_X0=$(( COLS - 9 ))
+        printf '\033[%d;%dH%s⟳ 비우기%s' "$TASK_RESET_Y" "$TASK_RESET_X0" "${C_C}${C_B}" "${C_X}"
+      fi
+    fi
     printf '\033[u'
   }
 
@@ -1429,7 +1535,11 @@ EOF
         fi
         mb=0
         case "$mb" in
-          0) if [ "${my:-0}" = 2 ]; then local t hit=-1; for ((t=0;t<${#TABS[@]};t++)); do [ "${mx:-0}" -ge "${TX0[$t]}" ] && [ "${mx:-0}" -le "${TX1[$t]}" ] && { hit=$t; break; }; done
+          0) if [ "$STAR_Y" -gt 0 ] && [ "${my:-0}" = "$STAR_Y" ] && [ "$STAR_X0" -gt 0 ] && [ "${mx:-0}" -ge "$STAR_X0" ] && [ "${mx:-0}" -le "$STAR_X1" ]; then
+                _open_github_star || true; _draw; continue
+             elif [ "$TASK_RESET_X0" -gt 0 ] && [ "${my:-0}" = "$TASK_RESET_Y" ] && [ "${mx:-0}" -ge "$TASK_RESET_X0" ] && [ "${mx:-0}" -le "$TASK_RESET_X1" ]; then
+                : > "$TASK_FILE" 2>/dev/null; TASK_STAMP=$(_task_file_stamp); DETAIL_MSG="작업 기록을 초기화했습니다"; _draw; continue
+             elif [ "${my:-0}" = 2 ]; then local t hit=-1; for ((t=0;t<${#TABS[@]};t++)); do [ "${mx:-0}" -ge "${TX0[$t]}" ] && [ "${mx:-0}" -le "${TX1[$t]}" ] && { hit=$t; break; }; done
                 [ "$hit" -lt 0 ] && continue; tab=$hit; mtop=0; HOVER_AREA=tab; HOVER_INDEX=$hit; HOVER_GROUP=""
              elif [ "${mx:-0}" -gt "$LW" ]; then    # 우측 패널 클릭
                 continue
@@ -1494,16 +1604,22 @@ EOF
                               panelview) _session_click "$arg" ;;
                               *) continue ;;
                             esac ;;
-                  Settings) [ -n "$FLOW" ] && continue
-                            local xi xact xarg
+                  Settings) local xi xact xarg
                             xi=$(( mtop + ${my:-0} - 4 )); xact="${SACT[$xi]:-none}"; xarg="${SARG[$xi]:-}"
+                            [ -n "$FLOW" ] && [ "$xact" != settingsskillback ] && continue
                             case "$xact" in
+                              settingsskillback) FLOW=""; FSTEP=0; INPUT=""; SETTINGS_MSG=""; mtop=0 ;;
                               settingshub) SETTINGS_PAGE=hub; SETTINGS_MSG=""; mtop=0 ;;
                               settingsback) SETTINGS_PAGE=main; SETTINGS_MSG=""; mtop=0 ;;
                               sethub) _settings_hub_target "$xarg" ;;
                               authrefresh) _settings_auth_refresh; SETTINGS_MSG="Status refreshed" ;;
+                              settingssync) _settings_sync ;;
                               authlogin) _settings_auth_login "$xarg" ;;
                               authlogout) _settings_auth_logout "$xarg" ;;
+                              settingsskill) _settings_skill_start; mtop=0 ;;
+                              settingsskilldelete) SKILL_DELETE="$xarg"; SETTINGS_MSG=""; mtop=0 ;;
+                              settingsskillcancel) SKILL_DELETE=""; mtop=0 ;;
+                              settingsskillconfirm) _settings_skill_delete_confirm "$xarg" ;;
                               *) continue ;;
                             esac ;;
                   Adopt) local xi xact xarg

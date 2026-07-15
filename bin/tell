@@ -205,7 +205,7 @@ fi
 
 
 # ── load command/UI modules (functions live in lib/) ──
-for _lib in common ui tasks workspace adopt completion home; do
+for _lib in common ui tasks skills workspace adopt completion home; do
   . "$SELF_DIR/../lib/$_lib.sh" || { echo "loomo: missing lib/$_lib.sh — reinstall: npm i -g @namki1222/loomo" >&2; exit 1; }
 done
 
@@ -222,6 +222,7 @@ case "${1:-}" in
   update) shift; cmd_update "$@"; exit $? ;;
   restart) shift; cmd_restart "$@"; exit $? ;;
   task)   shift; cmd_task "$@";   exit $? ;;
+  skill)  shift; cmd_skill "$@";  exit $? ;;
   sync)   shift; cmd_sync "$@";   exit $? ;;
   tmux)   shift; cmd_tmux_mode "$@"; exit $? ;;
   help|--help|-h) cmd_help;       exit 0 ;;

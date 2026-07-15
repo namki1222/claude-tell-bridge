@@ -1,3 +1,8 @@
 node_modules/
 *.tgz
 .DS_Store
+
+# loomo auto-inserts its collaboration convention into the CLAUDE.md / AGENTS.md
+# of any project dir — including this repo. That block is generated, not source.
+/CLAUDE.md
+/AGENTS.md

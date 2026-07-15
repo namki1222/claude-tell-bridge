@@ -41,7 +41,7 @@ _tell() {
   COMPREPLY=()
   local LAYOUTS="tiled main-vertical main-horizontal even-horizontal even-vertical"
   if [ "$pos" -eq 1 ]; then
-    COMPREPLY=($(compgen -W "$(_tell_sessions) add adopt hub up down layout ws list rm task sync tmux doctor completion update restart help -r" -- "$cur"))
+    COMPREPLY=($(compgen -W "$(_tell_sessions) add adopt hub up down layout ws list rm task skill sync tmux doctor completion update restart help -r" -- "$cur"))
   elif [ "$pos" -eq 2 ]; then
     case "$first" in
       ws|rm) COMPREPLY=($(compgen -W "$(_tell_sessions)" -- "$cur")) ;;
@@ -49,9 +49,11 @@ _tell() {
       down) COMPREPLY=($(compgen -W "$(_tell_sessions) --all" -- "$cur")) ;;
       layout) COMPREPLY=($(compgen -W "$(_tell_sessions) $LAYOUTS" -- "$cur")) ;;
       task) COMPREPLY=($(compgen -W "list ack status" -- "$cur")) ;;
+      skill) COMPREPLY=($(compgen -W "add delete list" -- "$cur")) ;;
       tmux) COMPREPLY=($(compgen -W "status dedicated legacy" -- "$cur")) ;;
       doctor) COMPREPLY=($(compgen -W "--fix" -- "$cur")) ;;
-      add|adopt|hub|list|sync|completion|update|restart|help|-r) ;;
+      hub) COMPREPLY=($(compgen -W "status" -- "$cur")) ;;
+      add|adopt|list|sync|completion|update|restart|help|-r) ;;
       *) COMPREPLY=($(compgen -W "$(_tell_roles "$first")" -- "$cur")) ;;
     esac
   elif [ "$pos" -eq 3 ] && [ "$first" = "layout" ]; then

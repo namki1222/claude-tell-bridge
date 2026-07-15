@@ -31,18 +31,32 @@ tell application "iTerm2"
 end tell
 EOF
   else
-    # Terminal.app: 새 탭 = Cmd+T 키 입력(System Events) — '손쉬운 사용' 권한 필요. 실패 시 새 창 폴백
+    # Terminal.app: 새 탭은 System Events Cmd+T가 유일한 방법이라 '손쉬운 사용' 권한 필요.
+    # 권한이 없으면 Cmd+T가 씹혀 새 탭이 안 생기는데, 그대로 do script 하면 명령이
+    # 현재 탭(대시보드)에 타이핑돼 버린다 → 탭 개수가 '실제로' 늘었을 때만 do script.
     if osascript >/dev/null 2>&1 <<EOF
 tell application "Terminal" to activate
-tell application "System Events" to keystroke "t" using command down
-delay 0.3
-tell application "Terminal" to do script "$apple_cmd" in selected tab of front window
+delay 0.25
+tell application "Terminal"
+  if (count of windows) is 0 then
+    do script "$apple_cmd"
+  else
+    set beforeCount to (count of tabs of front window)
+    tell application "System Events" to tell process "Terminal" to keystroke "t" using command down
+    delay 0.6
+    if (count of tabs of front window) > beforeCount then
+      do script "$apple_cmd" in selected tab of front window
+    else
+      error "loomo: new tab was not created (Accessibility permission?)"
+    end if
+  end if
+end tell
 EOF
     then :; else
       if [ "${TERMTAB_WARNED:-0}" = "0" ]; then
         TERMTAB_WARNED=1
-        warn "tab failed → opening a window instead. For tabs, allow Terminal in the Settings pane that just opened"
-        # 앱 권한 요청 UX 흉내: 손쉬운 사용 설정 화면을 바로 열어준다 (권한 부여 자체는 사용자만 가능)
+        warn "새 탭 실패 → 새 창으로 엽니다. 탭으로 열려면 방금 뜬 설정에서 '손쉬운 사용'에 Terminal(터미널)을 허용하세요"
+        # 손쉬운 사용 설정 화면을 바로 열어준다 (권한 부여 자체는 사용자만 가능)
         open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" 2>/dev/null
       fi
       osascript >/dev/null <<EOF

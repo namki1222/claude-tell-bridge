@@ -136,12 +136,22 @@ Run `loomo` to open the dashboard. Nearly everything can be managed here with th
 - Choose the Hub session that routes requests across projects.
 - Check Claude/Codex authentication and start or revoke login.
 - View environment status and usage.
+- Refresh every project's collaboration convention with **[⟳ Sync now]** — no CLI needed.
+
+### Pane right-click skills
+
+- In the dashboard, choose **Settings → Skills → Add Markdown skill**.
+- Drag a `.md` file into the input area and press Enter.
+- The skill appears as `Use: filename` the next time you right-click.
+- Selecting it makes that pane's AI read and activate the Markdown instructions.
+- Remove a skill from Settings with `[Delete]` → `[Confirm delete]`.
+- Skills are stored under loomo's `skills/<name>/SKILL.md` configuration directory.
 
 A project is one tmux session; each role is one resident AI pane. Claude and Codex panes can live in the same project.
 
 <br>
 
-This also inserts the collaboration convention into each directory (`CLAUDE.md` or `AGENTS.md`) — that's what tells the receiving AI to reply over the bridge.
+This also inserts the collaboration convention into each directory (`CLAUDE.md` or `AGENTS.md`) — that's what tells the receiving AI to reply over the bridge. A project pane only messages within its own project; reaching another project is routed through the hub.
 
 ### Conversation persistence
 
@@ -197,6 +207,8 @@ loomo update           # update to the latest npm release
 loomo task list
 loomo task ack <KEY>
 loomo task status <KEY> <state> "summary"
+loomo skill add <file.md>
+loomo skill list
 ```
 
 Sessions can message with `tell <session> <role> "request"`. Most users should simply ask their AI in plain language instead of typing this directly.
