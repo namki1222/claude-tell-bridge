@@ -6,8 +6,12 @@ _applescript_escape() { # shell command on stdin-like arg -> APPLESCRIPT_TEXT
   APPLESCRIPT_TEXT=${APPLESCRIPT_TEXT//\"/\\\"}
 }
 
-_dark_terminal_command() { # $1=shell command -> DARK_COMMAND (terminal-local colors)
-  DARK_COMMAND="printf '\\033]10;#f2f2f2\\007\\033]11;#000000\\007'; $1"
+_dark_terminal_command() { # $1=shell command -> DARK_COMMAND (pass-through)
+  # No longer forces the window's colors to dark — a session window opened from
+  # the dashboard now follows the user's own light/dark terminal theme (matching
+  # the dashboard), so light-theme users don't get a black window with unreadable
+  # text. Kept as a thin wrapper so the callers stay unchanged.
+  DARK_COMMAND="$1"
 }
 
 open_terminal_tab() { # $1=세션 — macOS 터미널 앱에 그 세션으로 접속하는 탭/창을 연다

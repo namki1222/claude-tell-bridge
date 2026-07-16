@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/); this project follows [SemVer](https://semver.org/).
 
+## [2.0.20] - 2026-07-16
+
+### Fixed
+- **Session windows opened from the dashboard follow the terminal theme too.** Double-clicking a project (or otherwise opening a session terminal) no longer forces the new window's colors to dark via OSC — it inherits the user's own light/dark theme, matching the dashboard. Completes the light-theme fix from 2.0.19 for the terminal windows loomo spawns.
+
 ## [2.0.19] - 2026-07-16
 
 ### Fixed
