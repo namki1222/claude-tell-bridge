@@ -782,6 +782,16 @@ EOF
     else printf '1\n' > "$f"; SETTINGS_MSG="Claude bypass on · 위임 패널이 승인에서 안 멈춤 (새 패널부터)"; fi
     mtop=0
   }
+  _settings_theme_cycle() { # cycle loomo window theme auto → dark → light and apply live
+    local f="$CONFIG_DIR/theme" next
+    case "$(_loomo_theme)" in auto) next=dark ;; dark) next=light ;; *) next=auto ;; esac
+    mkdir -p "$CONFIG_DIR" 2>/dev/null; printf '%s\n' "$next" > "$f" 2>/dev/null
+    # Apply to this dashboard window immediately: reset any forced colors, then
+    # re-force for the new theme (empty for auto → back to the terminal's own).
+    printf '\033]110\007\033]111\007%s' "$(_theme_osc)"
+    SETTINGS_MSG="Window theme → $next · 새 세션 창부터 반영"
+    mtop=0
+  }
   _open_session() { # double click: start if needed, then open in a new terminal window
     local session="$1" output rc
     loomo_log INFO dashboard.session.open "session=$session"
@@ -1103,6 +1113,10 @@ EOF
         _main_row "  ${C_B}Delegated claude panes${C_X}  ${C_D}승인 프롬프트에서 안 멈춤${C_X}"
         if [ "$bypass_on" = 1 ]; then _main_row "  ${C_G}${C_B}● Bypass on${C_X}   ${C_D}[Turn off]${C_X}" settingsbypass
         else _main_row "  ${C_D}○ Bypass off${C_X}  ${C_C}[Turn on]${C_X}" settingsbypass; fi
+        _main_row ""
+        local theme_now; theme_now=$(_loomo_theme)
+        _main_row "  ${C_B}Window theme${C_X}  ${C_D}loomo 창 색 · 터미널 설정 불필요${C_X}"
+        _main_row "  ${C_C}${C_B}[${theme_now}]${C_X}  ${C_D}클릭 = auto → dark → light${C_X}" settingstheme
         _main_row ""
         _main_row "  ${C_B}AI models${C_X}  ${C_D}[Refresh status]${C_X}" authrefresh
         _main_row "  ${C_D}로그인 상태와 계정을 관리합니다${C_X}"
@@ -1501,7 +1515,7 @@ EOF
   # 화면에 echo되지 않도록 TUI 수명 전체에서 입력 모드를 고정한다.
   local TTY_STATE; TTY_STATE=$(stty -g </dev/tty 2>/dev/null)
   stty -echo -icanon min 1 time 0 </dev/tty 2>/dev/null
-  printf '\033[?1049h\033[2J\033[?1000h\033[?1002h\033[?1003h\033[?1006h\033[?25l\033[?7l'
+  printf '%s\033[?1049h\033[2J\033[?1000h\033[?1002h\033[?1003h\033[?1006h\033[?25l\033[?7l' "$(_theme_osc)"
   _dash_cleanup() {
     # OSC 110/111 restore the terminal's default fg/bg — the dashboard changed
     # them via OSC 10/11 above, and leaving them set would recolor other panes.
@@ -1655,6 +1669,7 @@ EOF
                               authrefresh) _settings_auth_refresh; SETTINGS_MSG="Status refreshed" ;;
                               settingssync) _settings_sync ;;
                               settingsbypass) _settings_bypass_toggle ;;
+                              settingstheme) _settings_theme_cycle ;;
                               authlogin) _settings_auth_login "$xarg" ;;
                               authlogout) _settings_auth_logout "$xarg" ;;
                               settingsskill) _settings_skill_start; mtop=0 ;;

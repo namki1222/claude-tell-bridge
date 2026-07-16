@@ -6,12 +6,16 @@ _applescript_escape() { # shell command on stdin-like arg -> APPLESCRIPT_TEXT
   APPLESCRIPT_TEXT=${APPLESCRIPT_TEXT//\"/\\\"}
 }
 
-_dark_terminal_command() { # $1=shell command -> DARK_COMMAND (pass-through)
-  # No longer forces the window's colors to dark — a session window opened from
-  # the dashboard now follows the user's own light/dark terminal theme (matching
-  # the dashboard), so light-theme users don't get a black window with unreadable
-  # text. Kept as a thin wrapper so the callers stay unchanged.
-  DARK_COMMAND="$1"
+_dark_terminal_command() { # $1=shell command -> DARK_COMMAND (prefixes theme OSC)
+  # auto: no color force — the window follows the user's own terminal theme.
+  # dark/light: force loomo's own session windows to that theme (LOOMO_THEME or
+  # the dashboard toggle), so users get a consistent look on any terminal.
+  local osc=""
+  case "$(_loomo_theme)" in
+    dark)  osc="printf '\\033]10;#f2f2f2\\007\\033]11;#000000\\007'; " ;;
+    light) osc="printf '\\033]10;#1a1a1a\\007\\033]11;#f2f2f2\\007'; " ;;
+  esac
+  DARK_COMMAND="$osc$1"
 }
 
 open_terminal_tab() { # $1=세션 — macOS 터미널 앱에 그 세션으로 접속하는 탭/창을 연다

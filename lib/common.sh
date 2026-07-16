@@ -47,6 +47,25 @@ _claude_bypass_on() {
   [ "$v" = 1 ]
 }
 
+# loomo window theme: auto (follow the terminal), dark, or light. LOOMO_THEME env
+# wins; otherwise the dashboard-persisted value ($CONFIG_DIR/theme); default auto.
+# auto renders on the terminal's own colors; dark/light force loomo's own windows
+# (dashboard + spawned session terminals) so it works on any terminal, no terminal
+# config needed.
+_loomo_theme() {
+  local t="${LOOMO_THEME:-}"
+  case "$t" in dark|light|auto) printf '%s' "$t"; return ;; esac
+  [ -f "$CONFIG_DIR/theme" ] && read -r t < "$CONFIG_DIR/theme" 2>/dev/null
+  case "$t" in dark|light) printf '%s' "$t" ;; *) printf 'auto' ;; esac
+}
+# OSC 10/11 that forces a window's fg/bg for the chosen theme; empty for auto.
+_theme_osc() {
+  case "$(_loomo_theme)" in
+    dark)  printf '\033]10;#f2f2f2\007\033]11;#000000\007' ;;
+    light) printf '\033]10;#1a1a1a\007\033]11;#f2f2f2\007' ;;
+  esac
+}
+
 # Persistent diagnostics for background/UI actions whose stderr is otherwise
 # hidden by AppleScript or the dashboard's alternate screen.
 LOOMO_LOG_FILE="${LOOMO_LOG_FILE:-$CONFIG_DIR/loomo.log}"

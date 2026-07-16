@@ -3,6 +3,14 @@
 All notable changes to this project are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/); this project follows [SemVer](https://semver.org/).
 
+## [2.1.0] - 2026-07-16
+
+### Added
+- **Window theme setting — `auto` / `dark` / `light`.** loomo can force its own windows (the dashboard and the session terminals it spawns) to dark or light, independent of your terminal app's theme, so you don't have to configure the terminal itself. Set it from the dashboard **Settings → Window theme** toggle or the `LOOMO_THEME` env var; default `auto` follows the terminal's own colors.
+
+### Notes
+- Milestone release rolling up the 2.0.14–2.0.20 line: pane right-click Markdown skills, `loomo hub status` self-identification, session-scoped messaging, dashboard convention sync (manual button + auto-on-launch), opt-in Claude approval bypass, 24-bit color, and light/dark theme adaptivity for the dashboard and the windows loomo opens.
+
 ## [2.0.20] - 2026-07-16
 
 ### Fixed
