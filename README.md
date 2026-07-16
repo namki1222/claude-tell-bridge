@@ -201,6 +201,8 @@ loomo tmux status      # inspect loomo's private tmux server
 loomo update           # update to the latest npm release
 ```
 
+> **After updating loomo, run `loomo sync` first.** It refreshes the collaboration convention in every registered project's `CLAUDE.md`/`AGENTS.md`. Then restart those sessions so they reload it — a session reads its convention only at startup.
+
 ### Cross-session request state
 
 ```bash

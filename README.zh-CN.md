@@ -201,6 +201,8 @@ loomo tmux status      # 检查 loomo 的私有 tmux 服务器
 loomo update           # 更新到最新的 npm 发布版
 ```
 
+> **更新 loomo 后，请先运行 `loomo sync`。** 它会刷新每个已注册项目 `CLAUDE.md`/`AGENTS.md` 中的协作约定。然后重启这些会话以重新加载新约定 —— 会话只在启动时读取约定。
+
 ### 会话间请求状态
 
 ```bash

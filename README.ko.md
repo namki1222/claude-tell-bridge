@@ -201,6 +201,8 @@ loomo tmux status      # loomo 전용 tmux 상태 확인
 loomo update           # 최신 npm 버전으로 업데이트
 ```
 
+> **loomo를 업데이트했다면 `loomo sync`를 맨 먼저 실행하세요.** 등록된 모든 프로젝트의 `CLAUDE.md`/`AGENTS.md` 협업 규약을 최신으로 갱신합니다. 그다음 해당 세션들을 재시작해야 새 규약을 읽습니다 — 세션은 시작 시점에만 규약을 읽습니다.
+
 ### 세션 간 요청 상태
 
 ```bash
