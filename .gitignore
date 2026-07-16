@@ -3,6 +3,9 @@ node_modules/
 .DS_Store
 
 # loomo auto-inserts its collaboration convention into the CLAUDE.md / AGENTS.md
-# of any project dir — including this repo. That block is generated, not source.
+# of any project dir — including this repo. That block (and the .bak sync makes)
+# is generated, not source.
 /CLAUDE.md
 /AGENTS.md
+/CLAUDE.md.bak
+/AGENTS.md.bak
