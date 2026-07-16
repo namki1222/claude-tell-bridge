@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/); this project follows [SemVer](https://semver.org/).
 
+## [2.0.18] - 2026-07-16
+
+### Added
+- **Auto-sync conventions on dashboard launch.** Opening the dashboard now refreshes every project's `CLAUDE.md`/`AGENTS.md` collaboration block automatically — but only when the templates or hub changed since the last launch (e.g. after `loomo update`), so you never have to remember `loomo sync`. Silent, and guarded by a stamp so unchanged launches stay instant. Disable with `LOOMO_AUTOSYNC=0`. The manual **Settings → [⟳ Sync now]** button remains for forcing a refresh.
+
 ## [2.0.17] - 2026-07-16
 
 ### Changed

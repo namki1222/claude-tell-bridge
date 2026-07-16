@@ -41,8 +41,31 @@ cmd_home() {
     note "fix the issue above, then run loomo again"
     return 1
   fi
-  if [ -t 0 ] && [ -t 1 ] && { : </dev/tty; } 2>/dev/null; then _dashboard; return $?; fi
+  if [ -t 0 ] && [ -t 1 ] && { : </dev/tty; } 2>/dev/null; then _dash_autosync; _dashboard; return $?; fi
   cmd_help
+}
+
+# Refresh every project's convention once when the templates or hub changed since
+# the last dashboard launch (e.g. after 'loomo update'), so panes get the current
+# convention without anyone remembering to run 'loomo sync'. Silent, and guarded
+# by a stamp so unchanged launches stay instant. Disable with LOOMO_AUTOSYNC=0.
+_conventions_stamp() {
+  local f out=""
+  for f in "$TEMPLATE_DIR"/CLAUDE-section-*.md "$HUB_FILE"; do
+    [ -e "$f" ] || continue
+    out="$out$(stat -f '%m' "$f" 2>/dev/null || stat -c '%Y' "$f" 2>/dev/null):"
+  done
+  printf '%s' "$out"
+}
+_dash_autosync() {
+  [ "${LOOMO_AUTOSYNC:-1}" != 0 ] || return 0
+  [ -f "$WS_CONF" ] || return 0
+  local stamp_file="$CONFIG_DIR/sync-stamp" cur prev=""
+  cur=$(_conventions_stamp)
+  [ -f "$stamp_file" ] && read -r prev < "$stamp_file" 2>/dev/null
+  [ "$cur" = "$prev" ] && return 0
+  cmd_sync >/dev/null 2>&1 || true
+  mkdir -p "$CONFIG_DIR" 2>/dev/null && printf '%s\n' "$cur" > "$stamp_file" 2>/dev/null || true
 }
 
 _usage_dir() {
