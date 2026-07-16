@@ -262,7 +262,14 @@ cmd_agent_entry() { # internal: agent session role dir
         # delegated work never stalls unattended (default 'auto' still guards).
         if _claude_bypass_on; then cl_opt="--permission-mode bypassPermissions"; else cl_opt="--permission-mode auto"; fi
       fi
-      exec claude $cl_opt --session-id "$id"
+      # LOOMO_THEME dark/light forces claude's own theme too (merged via --settings)
+      # so it matches loomo's forced background instead of showing dark-on-dark.
+      local -a cl_theme=()
+      case "$(_loomo_theme)" in
+        dark)  cl_theme=(--settings '{"theme":"dark"}') ;;
+        light) cl_theme=(--settings '{"theme":"light"}') ;;
+      esac
+      exec claude $cl_opt ${cl_theme[@]+"${cl_theme[@]}"} --session-id "$id"
       ;;
     codex)
       started=$(date +%s)

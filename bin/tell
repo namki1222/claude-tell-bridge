@@ -101,10 +101,18 @@ agent_launch() { # agent resume_id session role dir → 패널에서 실행할 �
     else cl_opt="--permission-mode auto"; fi
     cx_opt="$cx_opt --ask-for-approval never"
   fi
+  # LOOMO_THEME dark/light also forces claude's own theme (merged via --settings,
+  # inline JSON), so it isn't left in light mode with dark text on loomo's forced
+  # dark background. auto leaves claude to detect the terminal itself.
+  local cl_theme=""
+  case "$(_loomo_theme)" in
+    dark)  cl_theme=" --settings '{\"theme\":\"dark\"}'" ;;
+    light) cl_theme=" --settings '{\"theme\":\"light\"}'" ;;
+  esac
   if [ -n "$rid" ]; then
     case "$ag" in
       codex) printf 'exec codex %s resume %s' "$cx_opt" "$rid" ;;   # codex: 서브커맨드
-      *)     printf 'exec claude %s --resume %s' "$cl_opt" "$rid" ;; # claude: 플래그
+      *)     printf 'exec claude %s%s --resume %s' "$cl_opt" "$cl_theme" "$rid" ;; # claude: 플래그
     esac
   else
     # A fresh CLI chooses a conversation ID only after launch. Route it through

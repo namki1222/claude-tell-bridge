@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/); this project follows [SemVer](https://semver.org/).
 
+## [2.1.1] - 2026-07-16
+
+### Fixed
+- **`LOOMO_THEME=dark`/`light` now also sets Claude's own theme.** Forcing loomo's window dark only changed the background, so Claude — still detecting a light terminal — kept a light theme and rendered dark text that vanished on the dark background. Opened/delegated claude panes now launch with `--settings '{"theme":"<theme>"}'` (inline JSON, merged non-destructively into the user's settings) so Claude's theme matches loomo's forced background. `auto` still lets Claude detect the terminal itself.
+
 ## [2.1.0] - 2026-07-16
 
 ### Added
